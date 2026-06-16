@@ -1,0 +1,17 @@
+import request from './index'
+
+export function searchStockSymbols(keyword = '') {
+  return request({
+    url: '/api/stock/symbols',
+    method: 'get',
+    params: { q: keyword }
+  })
+}
+
+export function generateStockProphecy(data) {
+  return request({
+    url: '/api/stock/prophecy',
+    method: 'post',
+    data
+  })
+}
