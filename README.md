@@ -24,6 +24,7 @@ This project is for research, review and product prototyping only. It is not inv
 - Append one explicit forecast candlestick path after the real K-line chart
 - Show LLM judgment, agent summaries, event signal and Stock Seed Report
 - Prefer Eastmoney data, with Sina historical K-line and Eastmoney realtime fallback
+- Save local prophecy archives and reuse short-lived cached results for repeated requests
 
 ## Interaction Flow
 
@@ -57,6 +58,9 @@ LLM_MODEL_NAME=deepseek-v4-pro
 
 ZEP_API_KEY=dummy
 
+STOCK_PROPHECY_CACHE_TTL_SECONDS=600
+STOCK_PROPHECY_ARCHIVE_DIR=./data/prophecies
+
 FLASK_HOST=0.0.0.0
 FLASK_PORT=5001
 FLASK_DEBUG=True
@@ -67,6 +71,7 @@ Notes:
 - A real `LLM_API_KEY` is required for DeepSeek-powered prophecy
 - `ZEP_API_KEY` is a legacy compatibility startup setting; CandleMind can use `dummy` for now
 - `.env` is ignored by git. Do not commit real secrets
+- Prophecy archives are stored under `data/prophecies` by default. `data/` is ignored by git
 
 ## Install
 
@@ -117,6 +122,21 @@ Example request:
   "includeEvents": true,
   "useLlm": true
 }
+```
+
+Recent local prophecy archives:
+
+```http
+GET /api/stock/prophecies?limit=20
+GET /api/stock/prophecies/{archiveId}
+```
+
+Each generated response includes `archive.id` and `cache.hit`. A repeated identical request within `STOCK_PROPHECY_CACHE_TTL_SECONDS` returns from cache.
+
+## Test
+
+```bash
+cd backend && python -m pytest tests
 ```
 
 ## Disclaimer

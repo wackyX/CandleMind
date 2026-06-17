@@ -29,6 +29,7 @@ The app is based on `666ghj/MiroFish`, but the active product surface is CandleM
 - `backend/app/services/stock_events.py`: Eastmoney news and announcements.
 - `backend/app/services/stock_indicators.py`: indicators and analogs.
 - `backend/app/services/stock_prophecy.py`: orchestration, LLM judgment, forecast candles.
+- `backend/app/services/stock_archive.py`: short-lived prophecy cache and local JSON audit archive.
 - `Dockerfile`: builds frontend and backend into one image.
 - `docker-compose.yml`: local/server container deployment.
 - `.github/workflows/docker-image.yml`: GHCR image build on tag or manual dispatch.
@@ -46,6 +47,9 @@ LLM_MODEL_NAME=deepseek-v4-pro
 
 ZEP_API_KEY=dummy
 
+STOCK_PROPHECY_CACHE_TTL_SECONDS=600
+STOCK_PROPHECY_ARCHIVE_DIR=./data/prophecies
+
 FLASK_HOST=0.0.0.0
 FLASK_PORT=5001
 FLASK_DEBUG=False
@@ -56,6 +60,7 @@ Notes:
 - A real `LLM_API_KEY` is required for LLM prophecy.
 - `ZEP_API_KEY=dummy` is acceptable for CandleMind. It exists for historical compatibility.
 - `.env` is ignored by git.
+- Prophecy archives are written under `data/prophecies` by default. `data/` is ignored by git.
 
 ## Local Setup
 
@@ -111,6 +116,14 @@ Expected:
 - Response has `success: true`.
 - `data.llmProphecy.status` should be `ok` when LLM key is valid.
 - `data.forecast.candles` should contain forecast candles.
+- `data.archive.id` identifies the local audit archive for this run.
+- A repeated request within `STOCK_PROPHECY_CACHE_TTL_SECONDS` should return `data.cache.hit: true`.
+
+Backend tests:
+
+```bash
+cd backend && python -m pytest tests
+```
 
 ## Docker Deployment
 
@@ -235,4 +248,3 @@ lsof -nP -iTCP:5001 -sTCP:LISTEN
 - Do not fake current K-line data.
 - Keep forecast as one explicit path, not simultaneous bullish and bearish paths.
 - Forecast candles should look like real candles, including upper and lower wicks.
-

@@ -24,6 +24,7 @@ A股K线AI预言终端
 - 在真实 K 线后方补出单一路径预言 K 线，包括上下影线
 - 展示 LLM 裁决层、Agent 摘要、事件信号和 Stock Seed Report
 - 东方财富优先，必要时使用新浪历史行情和东方财富实时行情兜底
+- 保存本地推演档案，并对短时间内的重复请求复用缓存结果
 
 ## 交互流程
 
@@ -57,6 +58,9 @@ LLM_MODEL_NAME=deepseek-v4-pro
 
 ZEP_API_KEY=dummy
 
+STOCK_PROPHECY_CACHE_TTL_SECONDS=600
+STOCK_PROPHECY_ARCHIVE_DIR=./data/prophecies
+
 FLASK_HOST=0.0.0.0
 FLASK_PORT=5001
 FLASK_DEBUG=True
@@ -67,6 +71,7 @@ FLASK_DEBUG=True
 - 股票预言功能需要真实 `LLM_API_KEY` 才能启用 DeepSeek 裁决
 - `ZEP_API_KEY` 是历史兼容启动项，当前烛机功能可以先填 `dummy`
 - `.env` 已被 `.gitignore` 忽略，不要提交真实密钥
+- 推演档案默认保存在 `data/prophecies`，`data/` 已被 git 忽略
 
 ## 安装
 
@@ -117,6 +122,21 @@ POST /api/stock/prophecy
   "includeEvents": true,
   "useLlm": true
 }
+```
+
+本地推演档案接口：
+
+```http
+GET /api/stock/prophecies?limit=20
+GET /api/stock/prophecies/{archiveId}
+```
+
+每次生成结果会带回 `archive.id` 和 `cache.hit`。相同请求在 `STOCK_PROPHECY_CACHE_TTL_SECONDS` 时间内会直接命中缓存。
+
+## 测试
+
+```bash
+cd backend && python -m pytest tests
 ```
 
 ## 免责声明

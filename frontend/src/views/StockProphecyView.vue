@@ -1,86 +1,148 @@
 <template>
-  <div class="stock-page">
+  <div class="stock-page" :data-theme="theme">
     <section v-if="!report && !loading" class="entry-screen">
-      <form class="entry-card" @submit.prevent="loadProphecy">
-        <div class="entry-logo">
-          <img src="/candlemind-icon.svg" alt="烛机 CandleMind" />
-        </div>
-        <div class="entry-copy">
-          <h1>烛机</h1>
-          <p>CandleMind。输入 A 股代码，生成真实行情、新闻事件和 DeepSeek 裁决后的未来 K 线路径。</p>
-        </div>
-        <label class="entry-field" for="entry-stock-symbol">
-          <span>股票代码</span>
-          <input
-            id="entry-stock-symbol"
-            v-model="form.symbol"
-            list="entry-symbol-list"
-            maxlength="6"
-            inputmode="numeric"
-            autocomplete="off"
-            autofocus
-          />
-          <datalist id="entry-symbol-list">
-            <option v-for="item in symbols" :key="item.symbol" :value="item.symbol">
-              {{ item.name }}
-            </option>
-          </datalist>
-        </label>
-        <div class="entry-options">
-          <label class="field" for="entry-stock-horizon">
-            <span>预测窗口</span>
-            <select id="entry-stock-horizon" v-model.number="form.horizon">
-              <option :value="1">1 个交易日</option>
-              <option :value="5">5 个交易日</option>
-              <option :value="10">10 个交易日</option>
-              <option :value="20">20 个交易日</option>
-            </select>
-          </label>
-          <label class="field" for="entry-stock-days">
-            <span>样本长度</span>
-            <select id="entry-stock-days" v-model.number="form.days">
-              <option :value="120">120 日</option>
-              <option :value="180">180 日</option>
-              <option :value="240">240 日</option>
-              <option :value="320">320 日</option>
-            </select>
-          </label>
-        </div>
-        <label class="toggle-field entry-toggle">
-          <input v-model="form.includeEvents" type="checkbox" />
-          <span>拉取近期新闻和公告事件</span>
-        </label>
-        <label class="toggle-field entry-toggle">
-          <input v-model="form.useLlm" type="checkbox" />
-          <span>启用 DeepSeek 裁决和预言</span>
-        </label>
-        <button class="primary-button entry-submit" type="submit">
-          开始预言
-        </button>
-        <p v-if="error" class="entry-error">{{ error }}</p>
-      </form>
+      <div class="entry-shell">
+        <header class="entry-topbar">
+          <div class="brand-lockup">
+            <span class="brand-glyph">烛</span>
+            <span>
+              <strong>烛机 CandleMind</strong>
+              <small>A 股日 K 预言终端</small>
+            </span>
+          </div>
+          <div class="theme-toggle" aria-label="主题切换">
+            <button type="button" :class="{ active: theme === 'light' }" @click="setTheme('light')">白昼</button>
+            <button type="button" :class="{ active: theme === 'dark' }" @click="setTheme('dark')">暗黑</button>
+          </div>
+        </header>
+
+        <form class="entry-hero" @submit.prevent="loadProphecy">
+          <div class="entry-copy">
+            <h1>输入代码<br />点燃预言</h1>
+            <p>烛机拉取真实 A 股日 K、近期事件与模型裁决，在最后一根真实 K 线后生成未来路径。</p>
+            <label class="entry-pill" for="entry-stock-symbol">
+              <input
+                id="entry-stock-symbol"
+                v-model="form.symbol"
+                list="entry-symbol-list"
+                maxlength="6"
+                inputmode="numeric"
+                autocomplete="off"
+                autofocus
+                aria-label="股票代码"
+              />
+              <button type="submit">开始预言</button>
+              <datalist id="entry-symbol-list">
+                <option v-for="item in symbols" :key="item.symbol" :value="item.symbol">
+                  {{ item.name }}
+                </option>
+              </datalist>
+            </label>
+            <div class="entry-signals">
+              <span>东方财富行情</span>
+              <span>新闻公告事件</span>
+              <span>DeepSeek 裁决</span>
+            </div>
+            <div class="entry-options">
+              <label class="field" for="entry-stock-horizon">
+                <span>预测窗口</span>
+                <select id="entry-stock-horizon" v-model.number="form.horizon">
+                  <option :value="1">1 个交易日</option>
+                  <option :value="5">5 个交易日</option>
+                  <option :value="10">10 个交易日</option>
+                  <option :value="20">20 个交易日</option>
+                </select>
+              </label>
+              <label class="field" for="entry-stock-days">
+                <span>样本长度</span>
+                <select id="entry-stock-days" v-model.number="form.days">
+                  <option :value="120">120 日</option>
+                  <option :value="180">180 日</option>
+                  <option :value="240">240 日</option>
+                  <option :value="320">320 日</option>
+                </select>
+              </label>
+            </div>
+            <div class="entry-switches">
+              <label class="toggle-field entry-toggle">
+                <input v-model="form.includeEvents" type="checkbox" />
+                <span>拉取近期新闻和公告事件</span>
+              </label>
+              <label class="toggle-field entry-toggle">
+                <input v-model="form.useLlm" type="checkbox" />
+                <span>启用 DeepSeek 裁决和预言</span>
+              </label>
+            </div>
+            <p v-if="error" class="entry-error">{{ error }}</p>
+          </div>
+
+          <aside class="prophecy-instrument">
+            <div class="instrument-head">
+              <div>
+                <span>SH 600519 / 1D</span>
+                <strong>贵州茅台 烛机推演</strong>
+              </div>
+              <b>看多 67%</b>
+            </div>
+            <div class="preview-chart">
+              <svg viewBox="0 0 520 310" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M24 195 C86 124 132 171 184 132 S286 100 330 145 S418 210 496 116" />
+                <path class="forecast-preview-line" d="M360 158 C402 128 440 134 500 102" />
+              </svg>
+              <i class="preview-candle gain" style="--x:9%;--b:36%;--h:66px"></i>
+              <i class="preview-candle risk" style="--x:17%;--b:45%;--h:48px"></i>
+              <i class="preview-candle gain" style="--x:26%;--b:40%;--h:84px"></i>
+              <i class="preview-candle gain" style="--x:36%;--b:50%;--h:58px"></i>
+              <i class="preview-candle risk" style="--x:47%;--b:38%;--h:78px"></i>
+              <i class="preview-candle gain" style="--x:58%;--b:48%;--h:88px"></i>
+              <i class="preview-candle prophecy" style="--x:73%;--b:53%;--h:76px"></i>
+              <i class="preview-candle prophecy" style="--x:84%;--b:60%;--h:62px"></i>
+            </div>
+            <div class="instrument-steps">
+              <div><span></span><strong>连接行情与实时 K 线</strong><b>01</b></div>
+              <div><span></span><strong>整理新闻公告事件</strong><b>02</b></div>
+              <div><span></span><strong>请求 DeepSeek 主方向裁决</strong><b>03</b></div>
+              <div><span></span><strong>生成单一路径预言 K 线</strong><b>04</b></div>
+            </div>
+          </aside>
+        </form>
+      </div>
     </section>
 
     <section v-else-if="loading" class="entry-screen loading-screen">
-      <div class="entry-card loading-card">
-        <div class="entry-logo scanning">
-          <img src="/candlemind-icon.svg" alt="烛机 CandleMind" />
-        </div>
-        <div class="entry-copy">
-          <h1>烛机正在推演</h1>
-          <p>{{ form.symbol }} 的行情、事件和模型裁决正在汇合，完成后会一次性渲染完整结果。</p>
-        </div>
-        <div class="loading-stack">
-          <div
-            v-for="(step, index) in loadingSteps"
-            :key="step"
-            :class="['loading-step', { active: index === loadingStepIndex, done: index < loadingStepIndex }]"
-          >
-            <span class="step-indicator">
-              <i v-if="index === loadingStepIndex" class="step-spinner"></i>
-              <b v-else>{{ index + 1 }}</b>
+      <div class="entry-shell loading-shell">
+        <header class="entry-topbar">
+          <div class="brand-lockup">
+            <span class="brand-glyph scanning">烛</span>
+            <span>
+              <strong>烛机 CandleMind</strong>
+              <small>A 股日 K 预言终端</small>
             </span>
-            <strong>{{ step }}</strong>
+          </div>
+          <div class="theme-toggle" aria-label="主题切换">
+            <button type="button" :class="{ active: theme === 'light' }" @click="setTheme('light')">白昼</button>
+            <button type="button" :class="{ active: theme === 'dark' }" @click="setTheme('dark')">暗黑</button>
+          </div>
+        </header>
+        <div class="loading-hero">
+          <div class="entry-copy">
+            <h1>烛机正在推演</h1>
+            <p>{{ form.symbol }} 的行情、事件和模型裁决正在汇合，完成后会一次性渲染完整结果。</p>
+          </div>
+          <div class="prophecy-instrument loading-instrument">
+            <div class="loading-stack">
+              <div
+                v-for="(step, index) in loadingSteps"
+                :key="step"
+                :class="['loading-step', { active: index === loadingStepIndex, done: index < loadingStepIndex }]"
+              >
+                <span class="step-indicator">
+                  <i v-if="index === loadingStepIndex" class="step-spinner"></i>
+                  <b v-else>{{ index + 1 }}</b>
+                </span>
+                <strong>{{ step }}</strong>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -103,6 +165,10 @@
         <span>{{ report ? providerLabel(report.provider) : '等待行情' }}</span>
       </div>
       <nav class="header-actions">
+        <div class="theme-toggle compact" aria-label="主题切换">
+          <button type="button" :class="{ active: theme === 'light' }" @click="setTheme('light')">白昼</button>
+          <button type="button" :class="{ active: theme === 'dark' }" @click="setTheme('dark')">暗黑</button>
+        </div>
         <button class="ghost-button" @click="loadProphecy" :disabled="loading">
           {{ loading ? '推演中' : '刷新推演' }}
         </button>
@@ -453,6 +519,7 @@ let loadingTimer = null
 const error = ref('')
 const report = ref(null)
 const symbols = ref([])
+const theme = ref(localStorage.getItem('candlemind-theme') || 'dark')
 const loadingSteps = [
   '连接东方财富并拉取近期日K',
   '计算均线、RSI、ATR和相似形态',
@@ -560,6 +627,11 @@ const forecastSummary = computed(() => {
 const loadSymbols = async () => {
   const res = await searchStockSymbols()
   symbols.value = res.data
+}
+
+const setTheme = (value) => {
+  theme.value = value
+  localStorage.setItem('candlemind-theme', value)
 }
 
 const loadProphecy = async () => {
@@ -684,15 +756,51 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .stock-page {
+  --bg: #05090b;
+  --bg-2: #0b1417;
+  --text: #edf7f7;
+  --muted: #90a6aa;
+  --soft: rgba(237, 247, 247, 0.06);
+  --line: rgba(255, 90, 102, 0.2);
+  --panel: rgba(8, 18, 22, 0.78);
+  --panel-solid: #0b1519;
+  --accent: #ff5a66;
+  --accent-deep: #b5232e;
+  --accent-2: #e0b45a;
+  --accent-ink: #051014;
+  --risk: #8ba3aa;
+  --risk-soft: rgba(139, 163, 170, 0.18);
+  --shadow: rgba(0, 0, 0, 0.42);
+  --chart-grid: rgba(255, 90, 102, 0.11);
+  --forecast: rgba(224, 180, 90, 0.12);
   min-height: 100dvh;
-  color: #dce7e9;
+  color: var(--text);
   background:
-    linear-gradient(90deg, rgba(74, 222, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(74, 222, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(135deg, #071019 0%, #0a1016 48%, #070b12 100%);
-  background-size: 56px 56px, 56px 56px, auto;
+    radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 34%),
+    radial-gradient(circle at 76% 16%, color-mix(in srgb, var(--accent-2) 14%, transparent), transparent 30%),
+    linear-gradient(180deg, var(--bg), var(--bg-2));
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   overflow-x: hidden;
+}
+
+.stock-page[data-theme="light"] {
+  --bg: #f3f7f8;
+  --bg-2: #e8eef1;
+  --text: #10191d;
+  --muted: #617177;
+  --soft: rgba(16, 25, 29, 0.06);
+  --line: rgba(181, 35, 46, 0.16);
+  --panel: rgba(255, 255, 255, 0.74);
+  --panel-solid: #ffffff;
+  --accent: #b5232e;
+  --accent-deep: #8f1b25;
+  --accent-2: #c8953d;
+  --accent-ink: #f8fbfb;
+  --risk: #52636b;
+  --risk-soft: rgba(82, 99, 107, 0.12);
+  --shadow: rgba(28, 47, 57, 0.16);
+  --chart-grid: rgba(181, 35, 46, 0.11);
+  --forecast: rgba(200, 149, 61, 0.13);
 }
 
 .stock-page::before {
@@ -701,9 +809,11 @@ onBeforeUnmount(() => {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 20% 0%, rgba(54, 211, 255, 0.12), transparent 32%),
-    radial-gradient(circle at 88% 14%, rgba(255, 74, 113, 0.07), transparent 28%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 20%, rgba(0, 0, 0, 0.22));
+    linear-gradient(90deg, var(--chart-grid) 1px, transparent 1px),
+    linear-gradient(0deg, var(--chart-grid) 1px, transparent 1px);
+  background-size: 54px 54px;
+  mask-image: radial-gradient(circle at center, black, transparent 72%);
+  opacity: 0.6;
   z-index: 0;
 }
 
@@ -714,136 +824,384 @@ onBeforeUnmount(() => {
   pointer-events: none;
   background-image: linear-gradient(rgba(255,255,255,0.035) 50%, rgba(0,0,0,0.025) 50%);
   background-size: 100% 5px;
-  opacity: 0.16;
+  opacity: 0.12;
   z-index: 1;
 }
 
 .command-bar,
-.terminal-grid {
+.terminal-grid,
+.entry-screen {
   position: relative;
   z-index: 2;
 }
 
 .entry-screen {
-  position: relative;
-  z-index: 2;
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 28px;
+  padding: 0 16px;
 }
 
-.entry-card {
-  width: min(620px, 100%);
+.entry-shell {
+  width: min(1180px, 100%);
+  min-height: 100dvh;
   display: grid;
-  gap: 18px;
-  padding: 26px;
-  border: 1px solid rgba(90, 203, 222, 0.22);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(11, 23, 33, 0.94), rgba(7, 13, 20, 0.96));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.065), 0 28px 70px rgba(0, 0, 0, 0.34);
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
-.entry-logo {
-  width: 74px;
-  height: 74px;
+.entry-topbar {
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.brand-lockup,
+.brand-button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-glyph,
+.brand-mark {
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
   border-radius: 12px;
-  box-shadow: 0 0 36px rgba(45, 212, 255, 0.2);
+  color: var(--accent-ink);
+  background: var(--accent);
+  font: 950 20px/1 "Songti SC", serif;
+  box-shadow: 0 18px 38px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
-.entry-logo img {
-  width: 74px;
-  height: 74px;
+.brand-mark img {
+  width: 30px;
+  height: 30px;
   display: block;
+  filter: saturate(0.9) hue-rotate(120deg);
 }
 
-.entry-logo.scanning {
-  animation: pulseScan 1.8s ease-in-out infinite;
+.brand-lockup strong,
+.brand-copy strong {
+  display: block;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.1;
+}
+
+.brand-lockup small,
+.brand-copy small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font: 800 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.theme-toggle {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: 0 18px 50px var(--shadow);
+  backdrop-filter: blur(16px);
+}
+
+.theme-toggle.compact {
+  box-shadow: none;
+}
+
+.theme-toggle button {
+  height: 34px;
+  min-width: 72px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.theme-toggle button.active {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.entry-hero,
+.loading-hero {
+  min-height: calc(100dvh - 76px);
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 42px;
+  align-items: center;
+  padding: 24px 0 44px;
 }
 
 .entry-copy {
   display: grid;
-  gap: 10px;
+  gap: 22px;
+  align-content: center;
+}
+
+.entry-copy h1,
+h1 {
+  margin: 0;
+  color: var(--text);
+  letter-spacing: 0;
 }
 
 .entry-copy h1 {
-  font-size: clamp(36px, 8vw, 64px);
+  max-width: 640px;
+  font-size: clamp(54px, 8vw, 92px);
+  line-height: 0.95;
 }
 
 .entry-copy p {
-  max-width: 52ch;
+  max-width: 520px;
   margin: 0;
-  color: #a9bdc3;
-  font-size: 15px;
-  line-height: 1.7;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.75;
 }
 
-.entry-field {
+.entry-pill {
+  width: min(540px, 100%);
   display: grid;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: 0 24px 70px var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(18px);
 }
 
-.entry-field span {
-  color: #78909a;
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.entry-field input {
-  height: 58px;
-  font: 900 24px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+.entry-pill input {
+  min-width: 0;
+  height: 50px;
+  border: 0;
+  padding: 0 18px;
+  color: var(--text);
+  background: transparent;
+  outline: none;
+  font: 950 28px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   letter-spacing: 0.08em;
 }
 
+.entry-pill button,
+.primary-button {
+  border: 0;
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-weight: 950;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 16px 34px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.entry-pill button {
+  height: 50px;
+  min-width: 126px;
+  border-radius: 999px;
+}
+
+.entry-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font: 850 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.entry-signals span {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--soft);
+}
+
 .entry-options {
+  width: min(540px, 100%);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-.entry-toggle {
-  margin: 0;
+.entry-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
 }
 
-.entry-submit {
-  height: 48px;
-  font-size: 15px;
+.prophecy-instrument {
+  position: relative;
+  min-height: 530px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: var(--panel);
+  box-shadow: 0 34px 90px var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  backdrop-filter: blur(22px);
 }
 
-.entry-error {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 74, 113, 0.62);
-  border-radius: 6px;
-  background: rgba(57, 14, 24, 0.9);
-  color: #ff9aac;
-  font-size: 13px;
-  font-weight: 750;
+.prophecy-instrument::before {
+  content: '';
+  position: absolute;
+  inset: -44px;
+  z-index: -1;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: 50%;
+  transform: rotate(-10deg);
 }
 
-.loading-card {
-  width: min(700px, 100%);
+.instrument-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
+.instrument-head span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font: 850 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.instrument-head strong {
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.instrument-head b {
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 16px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font: 950 18px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.preview-chart {
+  height: 310px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background:
+    linear-gradient(0deg, var(--chart-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--chart-grid) 1px, transparent 1px),
+    color-mix(in srgb, var(--panel-solid) 84%, transparent);
+  background-size: 100% 52px, 52px 100%, auto;
+}
+
+.preview-chart::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 29%;
+  background: var(--forecast);
+  border-left: 1px dashed color-mix(in srgb, var(--accent-2) 65%, transparent);
+}
+
+.preview-chart svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.preview-chart path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  opacity: 0.72;
+}
+
+.preview-chart .forecast-preview-line {
+  stroke: var(--accent-2);
+  stroke-width: 2.8;
+  opacity: 0.88;
+}
+
+.preview-candle {
+  position: absolute;
+  left: var(--x);
+  bottom: var(--b);
+  width: 9px;
+  height: var(--h);
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 -24px 0 -3px var(--accent), 0 24px 0 -3px var(--accent);
+}
+
+.preview-candle.risk {
+  background: var(--risk);
+  box-shadow: 0 -24px 0 -3px var(--risk), 0 24px 0 -3px var(--risk);
+}
+
+.preview-candle.prophecy {
+  width: 10px;
+  background: var(--accent-2);
+  box-shadow: 0 -28px 0 -3px var(--accent-2), 0 26px 0 -3px var(--accent-2);
+}
+
+.instrument-steps,
 .loading-stack {
   display: grid;
-  gap: 9px;
-  margin-top: 4px;
+  gap: 10px;
+  margin-top: 16px;
 }
 
+.instrument-steps div,
 .loading-step {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  align-items: center;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
   gap: 10px;
+  align-items: center;
   min-height: 42px;
   padding: 8px 10px;
-  border: 1px solid rgba(90, 203, 222, 0.12);
-  border-radius: 6px;
-  background: rgba(3, 10, 16, 0.36);
-  color: #78909a;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--soft);
+}
+
+.instrument-steps span,
+.step-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+}
+
+.instrument-steps strong,
+.loading-step strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.instrument-steps b {
+  color: var(--muted);
+  font: 850 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.loading-shell {
+  width: min(1180px, 100%);
+}
+
+.loading-instrument {
+  min-height: 360px;
 }
 
 .step-indicator {
@@ -851,8 +1209,8 @@ onBeforeUnmount(() => {
   height: 24px;
   display: grid;
   place-items: center;
-  border-radius: 6px;
-  border: 1px solid rgba(90, 203, 222, 0.18);
+  border-radius: 8px;
+  border: 1px solid var(--line);
   font: 850 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -860,106 +1218,67 @@ onBeforeUnmount(() => {
   font: inherit;
 }
 
-.step-spinner {
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  border: 2px solid rgba(24, 16, 3, 0.28);
-  border-top-color: #181003;
-  animation: spin 0.78s linear infinite;
-}
-
-.loading-step strong {
-  font-size: 13px;
-  line-height: 1.35;
-}
-
-.loading-step.done {
-  color: #a9bdc3;
+.loading-step {
+  grid-template-columns: 30px minmax(0, 1fr);
+  color: var(--muted);
 }
 
 .loading-step.done .step-indicator {
-  color: #031118;
-  background: #82f3ff;
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 .loading-step.active {
-  color: #effcff;
-  border-color: rgba(255, 202, 91, 0.42);
-  box-shadow: inset 3px 0 0 rgba(255, 202, 91, 0.9);
+  border-color: color-mix(in srgb, var(--accent-2) 48%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent-2);
 }
 
 .loading-step.active .step-indicator {
-  color: #181003;
-  background: #ffca5b;
+  color: var(--accent-ink);
+  background: var(--accent-2);
+}
+
+.step-spinner {
+  width: 13px;
+  height: 13px;
+  animation: spin 0.78s linear infinite;
+}
+
+.entry-error,
+.error-strip {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 62%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 750;
 }
 
 .command-bar {
-  height: 72px;
+  min-height: 72px;
   display: grid;
-  grid-template-columns: minmax(190px, 1fr) auto minmax(190px, 1fr);
+  grid-template-columns: minmax(190px, 1fr) auto minmax(250px, 1fr);
   align-items: center;
   gap: 16px;
-  padding: 0 22px;
-  border-bottom: 1px solid rgba(90, 203, 222, 0.24);
-  background: rgba(6, 12, 19, 0.88);
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-solid) 86%, transparent);
   backdrop-filter: blur(18px);
   position: sticky;
   top: 0;
   z-index: 5;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
-}
-
-.brand-button,
-.ghost-button,
-.primary-button,
-.github-link {
-  font-family: inherit;
-  letter-spacing: 0;
+  box-shadow: 0 18px 50px var(--shadow);
 }
 
 .brand-button {
   justify-self: start;
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
   border: 0;
   background: transparent;
-  color: #f0fbfc;
+  color: var(--text);
   cursor: pointer;
   min-width: 0;
-}
-
-.brand-mark {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  box-shadow: 0 0 26px rgba(45, 212, 255, 0.18);
-}
-
-.brand-mark img {
-  width: 38px;
-  height: 38px;
-  display: block;
-}
-
-.brand-copy {
-  display: grid;
-  gap: 2px;
-  text-align: left;
-}
-
-.brand-copy strong {
-  font-size: 15px;
-  line-height: 1.1;
-}
-
-.brand-copy small {
-  color: #78909a;
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .market-status {
@@ -969,9 +1288,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 1px;
   overflow: hidden;
-  border: 1px solid rgba(90, 203, 222, 0.24);
-  border-radius: 6px;
-  background: rgba(7, 18, 27, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
 }
 
 .market-status span {
@@ -980,7 +1299,7 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   padding: 0 10px;
-  color: #a7c3ca;
+  color: var(--muted);
   background: rgba(255,255,255,0.025);
   font: 800 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: nowrap;
@@ -994,10 +1313,9 @@ onBeforeUnmount(() => {
 }
 
 .ghost-button,
-.github-link,
 .primary-button {
   height: 38px;
-  border-radius: 6px;
+  border-radius: 999px;
   padding: 0 14px;
   font-size: 13px;
   font-weight: 850;
@@ -1009,31 +1327,24 @@ onBeforeUnmount(() => {
   transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
 
-.ghost-button,
-.github-link {
-  border: 1px solid rgba(90, 203, 222, 0.3);
-  background: rgba(8, 20, 30, 0.72);
-  color: #c9e6ea;
+.ghost-button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
 }
 
-.ghost-button:hover,
-.github-link:hover {
-  border-color: rgba(130, 243, 255, 0.72);
-  color: #ffffff;
-  background: rgba(16, 36, 48, 0.88);
+.ghost-button:hover {
+  border-color: color-mix(in srgb, var(--accent) 56%, transparent);
+  background: var(--soft);
 }
 
 .primary-button {
   width: 100%;
-  border: 1px solid rgba(130, 243, 255, 0.9);
-  background: linear-gradient(180deg, #9af7ff, #31c9e6);
-  color: #031118;
-  box-shadow: 0 14px 34px rgba(49, 201, 230, 0.18), inset 0 1px 0 rgba(255,255,255,0.45);
 }
 
 .primary-button:active,
 .ghost-button:active,
-.github-link:active {
+.entry-pill button:active {
   transform: translateY(1px);
 }
 
@@ -1061,10 +1372,11 @@ button:disabled {
 .surface,
 .scenario-card {
   position: relative;
-  border: 1px solid rgba(90, 203, 222, 0.18);
-  border-radius: 6px;
-  background: linear-gradient(180deg, rgba(11, 23, 33, 0.92), rgba(7, 13, 20, 0.94));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055), 0 18px 45px rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 18px 45px var(--shadow);
+  backdrop-filter: blur(16px);
 }
 
 .surface::before,
@@ -1073,7 +1385,7 @@ button:disabled {
   position: absolute;
   inset: 0 0 auto;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(130, 243, 255, 0.58), transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 52%, transparent), transparent);
   opacity: 0.7;
   pointer-events: none;
 }
@@ -1084,7 +1396,7 @@ button:disabled {
 
 .panel-title {
   margin-bottom: 14px;
-  color: #82f3ff;
+  color: var(--accent);
   font: 900 12px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -1100,7 +1412,7 @@ button:disabled {
 .source-times span,
 .forecast-panel span,
 .forecast-stats small {
-  color: #78909a;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 750;
 }
@@ -1109,11 +1421,11 @@ input,
 select {
   width: 100%;
   height: 42px;
-  border: 1px solid rgba(90, 203, 222, 0.25);
-  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   padding: 0 11px;
-  color: #effcff;
-  background: rgba(3, 10, 16, 0.78);
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel-solid) 74%, transparent);
   font-family: inherit;
   outline: none;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
@@ -1121,13 +1433,13 @@ select {
 
 input:focus,
 select:focus {
-  border-color: rgba(130, 243, 255, 0.9);
-  box-shadow: 0 0 0 3px rgba(49, 201, 230, 0.12);
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 select option {
-  background: #08131d;
-  color: #effcff;
+  background: var(--panel-solid);
+  color: var(--text);
 }
 
 .toggle-field {
@@ -1135,7 +1447,7 @@ select option {
   align-items: center;
   gap: 9px;
   margin: 6px 0 16px;
-  color: #b6c9ce;
+  color: var(--text);
   font-size: 13px;
   font-weight: 750;
 }
@@ -1143,12 +1455,16 @@ select option {
 .toggle-field input {
   width: 16px;
   height: 16px;
-  accent-color: #31c9e6;
+  accent-color: var(--accent);
+}
+
+.entry-toggle {
+  margin: 0;
 }
 
 .micro-copy {
   margin: 12px 0 0;
-  color: #78909a;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.65;
 }
@@ -1165,29 +1481,19 @@ select option {
   align-content: space-between;
   gap: 8px;
   padding: 10px;
-  border: 1px solid rgba(90, 203, 222, 0.13);
-  border-radius: 6px;
-  background: rgba(3, 10, 16, 0.48);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--soft);
 }
 
 .metric-grid strong {
-  color: #effcff;
+  color: var(--text);
   font: 850 18px/1.05 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   word-break: break-word;
 }
 
 .provider-cell {
   grid-column: 1 / -1;
-}
-
-.error-strip {
-  padding: 12px 14px;
-  border: 1px solid rgba(255, 74, 113, 0.62);
-  border-radius: 6px;
-  background: rgba(57, 14, 24, 0.9);
-  color: #ff9aac;
-  font-size: 13px;
-  font-weight: 750;
 }
 
 .chart-shell {
@@ -1213,27 +1519,24 @@ select option {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #78909a;
+  color: var(--muted);
   font: 800 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .asset-line strong {
-  color: #effcff;
+  color: var(--text);
   font-size: 14px;
 }
 
 h1 {
-  margin: 0;
-  color: #f5fdff;
   font-size: clamp(24px, 3vw, 38px);
   line-height: 1.05;
-  letter-spacing: 0;
 }
 
 .asset-block p {
   max-width: 68ch;
   margin: 0;
-  color: #94aeb5;
+  color: var(--muted);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -1243,30 +1546,30 @@ h1 {
   gap: 12px;
   min-height: 122px;
   padding: 14px;
-  border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(3, 10, 16, 0.64);
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--soft);
 }
 
 .forecast-panel strong {
-  color: #f5fdff;
+  color: var(--text);
   font-size: 26px;
   line-height: 1;
 }
 
 .forecast-panel.tone-bull {
-  border-color: rgba(255, 74, 113, 0.44);
-  box-shadow: inset 3px 0 0 rgba(255, 74, 113, 0.88);
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .forecast-panel.tone-bear {
-  border-color: rgba(49, 201, 230, 0.46);
-  box-shadow: inset 3px 0 0 rgba(49, 201, 230, 0.9);
+  border-color: color-mix(in srgb, var(--risk) 46%, transparent);
+  box-shadow: inset 3px 0 0 var(--risk);
 }
 
 .forecast-panel.tone-neutral {
-  border-color: rgba(255, 202, 91, 0.42);
-  box-shadow: inset 3px 0 0 rgba(255, 202, 91, 0.88);
+  border-color: color-mix(in srgb, var(--accent-2) 42%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent-2);
 }
 
 .forecast-stats {
@@ -1280,11 +1583,11 @@ h1 {
   gap: 5px;
   min-width: 0;
   padding-top: 10px;
-  border-top: 1px solid rgba(255,255,255,0.08);
+  border-top: 1px solid var(--line);
 }
 
 .forecast-stats b {
-  color: #effcff;
+  color: var(--text);
   font: 850 16px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -1298,14 +1601,14 @@ h1 {
   height: auto;
   min-height: 360px;
   display: block;
-  border: 1px solid rgba(90, 203, 222, 0.18);
-  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
   background:
-    linear-gradient(90deg, rgba(90, 203, 222, 0.055) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(90, 203, 222, 0.04) 1px, transparent 1px),
-    #040a11;
+    linear-gradient(90deg, var(--chart-grid) 1px, transparent 1px),
+    linear-gradient(0deg, var(--chart-grid) 1px, transparent 1px),
+    color-mix(in srgb, var(--panel-solid) 88%, transparent);
   background-size: 52px 52px, 52px 52px, auto;
-  box-shadow: inset 0 0 44px rgba(49, 201, 230, 0.045);
+  box-shadow: inset 0 0 44px color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
 .chart-stamp {
@@ -1315,61 +1618,67 @@ h1 {
   display: grid;
   gap: 4px;
   padding: 8px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(90, 203, 222, 0.18);
-  background: rgba(4, 10, 17, 0.78);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
   backdrop-filter: blur(10px);
 }
 
 .chart-stamp span {
-  color: #78909a;
+  color: var(--muted);
   font-size: 11px;
 }
 
 .chart-stamp strong {
-  color: #dce7e9;
+  color: var(--text);
   font: 800 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .grid line {
-  stroke: rgba(148, 174, 181, 0.18);
+  stroke: color-mix(in srgb, var(--muted) 28%, transparent);
 }
 
 .axis-label,
 .forecast-label {
-  fill: #78909a;
+  fill: var(--muted);
   font-size: 11px;
   font-weight: 800;
 }
 
 .forecast-label {
-  fill: #ffca5b;
+  fill: var(--accent-2);
 }
 
 .up,
-.up-fill {
-  stroke: #ff4a71;
+.up-fill,
+.forecast-up,
+.forecast-up-fill {
+  stroke: var(--accent);
 }
 
-.up-fill {
-  fill: #ff4a71;
+.up-fill,
+.forecast-up-fill {
+  fill: var(--accent);
 }
 
 .down,
-.down-fill {
-  stroke: #31c9e6;
+.down-fill,
+.forecast-down,
+.forecast-down-fill {
+  stroke: var(--risk);
 }
 
-.down-fill {
-  fill: #31c9e6;
+.down-fill,
+.forecast-down-fill {
+  fill: var(--risk);
 }
 
 .forecast-band {
-  fill: rgba(255, 202, 91, 0.055);
+  fill: var(--forecast);
 }
 
 .forecast-divider {
-  stroke: rgba(255, 202, 91, 0.86);
+  stroke: color-mix(in srgb, var(--accent-2) 86%, transparent);
   stroke-width: 1.4;
   stroke-dasharray: 5 5;
 }
@@ -1379,28 +1688,10 @@ h1 {
   stroke-width: 2;
 }
 
-.forecast-up {
-  stroke: #ff4a71;
-}
-
-.forecast-down {
-  stroke: #31c9e6;
-}
-
 .forecast-up-fill,
 .forecast-down-fill {
   stroke-width: 1;
-  opacity: 0.8;
-}
-
-.forecast-up-fill {
-  fill: #ff4a71;
-  stroke: #ff4a71;
-}
-
-.forecast-down-fill {
-  fill: #31c9e6;
-  stroke: #31c9e6;
+  opacity: 0.9;
 }
 
 .ma-line,
@@ -1410,16 +1701,16 @@ h1 {
 }
 
 .ma5 {
-  stroke: #ffca5b;
+  stroke: var(--accent-2);
 }
 
 .ma20 {
-  stroke: #82f3ff;
+  stroke: color-mix(in srgb, var(--risk) 82%, var(--text));
 }
 
 .support,
 .resistance {
-  stroke: rgba(220, 231, 233, 0.55);
+  stroke: color-mix(in srgb, var(--text) 46%, transparent);
   stroke-width: 1;
   stroke-dasharray: 3 5;
 }
@@ -1429,7 +1720,7 @@ h1 {
   flex-wrap: wrap;
   gap: 10px 14px;
   margin-top: 11px;
-  color: #78909a;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 750;
 }
@@ -1453,24 +1744,24 @@ h1 {
 }
 
 .up-dot {
-  background: #ff4a71;
+  background: var(--accent);
 }
 
 .down-dot {
-  background: #31c9e6;
+  background: var(--risk);
 }
 
-.ma5-dot {
-  background: #ffca5b;
+.ma5-dot,
+.prophecy-dot {
+  background: var(--accent-2);
 }
 
 .ma20-dot {
-  background: #82f3ff;
+  background: var(--risk);
 }
 
 .prophecy-dot {
-  background: #ffca5b;
-  box-shadow: 0 0 12px rgba(255, 202, 91, 0.42);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-2) 42%, transparent);
 }
 
 .scenario-strip {
@@ -1486,20 +1777,20 @@ h1 {
 }
 
 .scenario-card.active {
-  border-color: rgba(255, 202, 91, 0.58);
-  background: linear-gradient(180deg, rgba(25, 24, 20, 0.95), rgba(8, 13, 19, 0.94));
+  border-color: color-mix(in srgb, var(--accent-2) 58%, transparent);
+  background: color-mix(in srgb, var(--panel-solid) 76%, transparent);
 }
 
 .scenario-card.tone-bull.active {
-  box-shadow: inset 3px 0 0 rgba(255, 74, 113, 0.9), 0 18px 45px rgba(0,0,0,0.22);
+  box-shadow: inset 3px 0 0 var(--accent), 0 18px 45px var(--shadow);
 }
 
 .scenario-card.tone-bear.active {
-  box-shadow: inset 3px 0 0 rgba(49, 201, 230, 0.9), 0 18px 45px rgba(0,0,0,0.22);
+  box-shadow: inset 3px 0 0 var(--risk), 0 18px 45px var(--shadow);
 }
 
 .scenario-card.tone-neutral.active {
-  box-shadow: inset 3px 0 0 rgba(255, 202, 91, 0.9), 0 18px 45px rgba(0,0,0,0.22);
+  box-shadow: inset 3px 0 0 var(--accent-2), 0 18px 45px var(--shadow);
 }
 
 .scenario-top {
@@ -1507,13 +1798,13 @@ h1 {
   align-items: start;
   justify-content: space-between;
   gap: 10px;
-  color: #dce7e9;
+  color: var(--text);
   font-size: 13px;
   font-weight: 850;
 }
 
 .scenario-top strong {
-  color: #effcff;
+  color: var(--text);
   font: 900 28px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -1527,28 +1818,30 @@ h1 {
 .probability-bar span {
   display: block;
   height: 100%;
-  background: #82f3ff;
+  background: var(--accent-2);
 }
 
 .scenario-card.tone-bull .probability-bar span {
-  background: #ff4a71;
+  background: var(--accent);
 }
 
 .scenario-card.tone-bear .probability-bar span {
-  background: #31c9e6;
+  background: var(--risk);
 }
 
 .scenario-card.tone-neutral .probability-bar span {
-  background: #ffca5b;
+  background: var(--accent-2);
 }
 
 .scenario-card p,
 .agent-row p,
 .event-row p,
 .signal-card p,
-.empty-copy {
+.empty-copy,
+.llm-columns p,
+.seed-panel pre {
   margin: 0;
-  color: #a9bdc3;
+  color: var(--muted);
   font-size: 13px;
   line-height: 1.55;
 }
@@ -1556,7 +1849,7 @@ h1 {
 .scenario-card small {
   display: block;
   margin-top: 10px;
-  color: #78909a;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -1570,30 +1863,30 @@ h1 {
   display: grid;
   gap: 7px;
   padding: 12px;
-  border: 1px solid rgba(90, 203, 222, 0.14);
-  border-radius: 6px;
-  background: rgba(3, 10, 16, 0.42);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--soft);
 }
 
 .llm-status.ok {
-  border-color: rgba(130, 243, 255, 0.34);
-  box-shadow: inset 3px 0 0 rgba(49, 201, 230, 0.9);
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .llm-status.fallback {
-  border-color: rgba(255, 202, 91, 0.34);
-  box-shadow: inset 3px 0 0 rgba(255, 202, 91, 0.9);
+  border-color: color-mix(in srgb, var(--accent-2) 34%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent-2);
 }
 
 .llm-status span,
 .llm-columns span {
-  color: #78909a;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 850;
 }
 
 .llm-status strong {
-  color: #effcff;
+  color: var(--text);
   font-size: 14px;
   line-height: 1.55;
 }
@@ -1604,22 +1897,20 @@ h1 {
   gap: 10px;
 }
 
+.llm-columns div,
+.event-row,
+.agent-row {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--soft);
+}
+
 .llm-columns div {
   min-width: 0;
   display: grid;
   align-content: start;
   gap: 8px;
   padding: 12px;
-  border: 1px solid rgba(90, 203, 222, 0.12);
-  border-radius: 6px;
-  background: rgba(3, 10, 16, 0.36);
-}
-
-.llm-columns p {
-  margin: 0;
-  color: #a9bdc3;
-  font-size: 13px;
-  line-height: 1.55;
 }
 
 .intel-grid {
@@ -1640,26 +1931,19 @@ h1 {
   padding-right: 4px;
 }
 
-.event-row,
-.agent-row {
-  border: 1px solid rgba(90, 203, 222, 0.12);
-  border-radius: 6px;
-  background: rgba(3, 10, 16, 0.42);
-}
-
 .event-row {
   display: grid;
   gap: 8px;
   padding: 12px;
-  color: #dce7e9;
+  color: var(--text);
   text-decoration: none;
   transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
 }
 
 .event-row:hover {
   transform: translateX(2px);
-  border-color: rgba(130, 243, 255, 0.52);
-  background: rgba(9, 23, 32, 0.76);
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  background: color-mix(in srgb, var(--panel-solid) 72%, transparent);
 }
 
 .event-meta,
@@ -1668,12 +1952,12 @@ h1 {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  color: #78909a;
+  color: var(--muted);
   font-size: 12px;
 }
 
 .event-row strong {
-  color: #eefcff;
+  color: var(--text);
   font-size: 14px;
   line-height: 1.45;
 }
@@ -1684,34 +1968,30 @@ h1 {
   align-items: center;
   height: 22px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: 999px;
   font-size: 12px;
   font-weight: 850;
 }
 
-.event-type.news {
-  color: #031118;
-  background: #82f3ff;
+.event-type.news,
+.sentiment-tag.positive {
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 .event-type.announcement {
-  color: #181003;
-  background: #ffca5b;
-}
-
-.sentiment-tag.positive {
-  color: #26040c;
-  background: #ff7b96;
+  color: var(--accent-ink);
+  background: var(--accent-2);
 }
 
 .sentiment-tag.negative {
-  color: #031118;
-  background: #82f3ff;
+  color: var(--text);
+  background: var(--risk-soft);
 }
 
 .sentiment-tag.neutral {
-  color: #dce7e9;
-  background: rgba(148, 174, 181, 0.18);
+  color: var(--text);
+  background: var(--soft);
 }
 
 .signal-panel,
@@ -1727,7 +2007,7 @@ h1 {
 }
 
 .signal-card span {
-  color: #78909a;
+  color: var(--muted);
   font-size: 13px;
   font-weight: 850;
 }
@@ -1747,11 +2027,11 @@ h1 {
   justify-content: space-between;
   gap: 10px;
   padding-top: 8px;
-  border-top: 1px solid rgba(90, 203, 222, 0.12);
+  border-top: 1px solid var(--line);
 }
 
 .source-times strong {
-  color: #dce7e9;
+  color: var(--text);
   font: 800 12px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   text-align: right;
 }
@@ -1765,13 +2045,13 @@ h1 {
 
 .agent-row span {
   display: block;
-  color: #78909a;
+  color: var(--muted);
   font-size: 12px;
   margin-bottom: 6px;
 }
 
 .agent-row strong {
-  color: #effcff;
+  color: var(--text);
   font-size: 13px;
 }
 
@@ -1780,41 +2060,37 @@ h1 {
   display: grid;
   align-content: center;
   margin-bottom: 12px;
-  border-bottom: 1px solid rgba(90, 203, 222, 0.12);
+  border-bottom: 1px solid var(--line);
 }
 
 .backtest-number strong {
   margin-top: 6px;
-  color: #82f3ff;
+  color: var(--accent);
   font: 900 40px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 strong.positive,
 b.positive {
-  color: #ff6f8d;
+  color: var(--accent);
 }
 
 strong.negative,
 b.negative {
-  color: #82f3ff;
+  color: var(--risk);
 }
 
 .seed-panel pre {
   white-space: pre-wrap;
   word-break: break-word;
-  margin: 0;
-  color: #a9bdc3;
   font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-.loading-shell {
-  min-height: 520px;
-}
-
+.loading-shell .skeleton-line,
+.loading-shell .skeleton-chart,
 .skeleton-line,
 .skeleton-chart {
-  border-radius: 6px;
-  background: linear-gradient(90deg, rgba(49, 201, 230, 0.07) 25%, rgba(130, 243, 255, 0.16) 50%, rgba(49, 201, 230, 0.07) 75%);
+  border-radius: 14px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent) 25%, color-mix(in srgb, var(--accent) 16%, transparent) 50%, color-mix(in srgb, var(--accent) 7%, transparent) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
 }
@@ -1838,18 +2114,32 @@ b.negative {
 }
 
 @keyframes pulseScan {
-  0%, 100% {
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 0 26px rgba(45, 212, 255, 0.16);
-  }
-  50% {
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 0 44px rgba(255, 202, 91, 0.24);
-  }
+  0%, 100% { box-shadow: 0 18px 38px color-mix(in srgb, var(--accent) 22%, transparent); }
+  50% { box-shadow: 0 18px 58px color-mix(in srgb, var(--accent-2) 32%, transparent); }
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
+  to { transform: rotate(360deg); }
+}
+
+.scanning {
+  animation: pulseScan 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .brand-glyph,
+  .prophecy-instrument {
+    animation: rise 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
+
+  .instrument-steps span {
+    animation: spin 900ms linear infinite;
+  }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1883,6 +2173,36 @@ b.negative {
   }
 }
 
+@media (max-width: 900px) {
+  .entry-topbar {
+    height: auto;
+    padding: 18px 0;
+  }
+
+  .entry-hero,
+  .loading-hero {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .entry-copy h1 {
+    font-size: clamp(48px, 15vw, 72px);
+  }
+
+  .entry-pill {
+    grid-template-columns: 1fr;
+    border-radius: 24px;
+  }
+
+  .entry-pill button {
+    width: 100%;
+  }
+
+  .prophecy-instrument {
+    min-height: auto;
+  }
+}
+
 @media (max-width: 860px) {
   .stage-head,
   .scenario-strip,
@@ -1899,21 +2219,30 @@ b.negative {
 
 @media (max-width: 640px) {
   .entry-screen {
-    padding: 18px;
+    padding: 0 14px;
     place-items: start center;
-    padding-top: 42px;
   }
 
-  .entry-card {
-    padding: 18px;
+  .entry-shell {
+    min-height: auto;
+  }
+
+  .entry-topbar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .entry-options {
     grid-template-columns: 1fr;
   }
 
-  .entry-copy h1 {
-    font-size: 38px;
+  .theme-toggle,
+  .theme-toggle.compact {
+    width: 100%;
+  }
+
+  .theme-toggle button {
+    width: 100%;
   }
 
   .command-bar {
@@ -1933,10 +2262,10 @@ b.negative {
 
   .header-actions {
     justify-content: stretch;
+    flex-wrap: wrap;
   }
 
-  .ghost-button,
-  .github-link {
+  .ghost-button {
     flex: 1;
   }
 

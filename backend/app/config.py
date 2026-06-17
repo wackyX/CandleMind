@@ -34,6 +34,13 @@ class Config:
     
     # Zep配置
     ZEP_API_KEY = os.environ.get('ZEP_API_KEY')
+
+    # CandleMind 股票推演配置
+    STOCK_PROPHECY_CACHE_TTL_SECONDS = int(os.environ.get('STOCK_PROPHECY_CACHE_TTL_SECONDS', '600'))
+    STOCK_PROPHECY_ARCHIVE_DIR = os.environ.get(
+        'STOCK_PROPHECY_ARCHIVE_DIR',
+        os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/prophecies'))
+    )
     
     # 文件上传配置
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
@@ -72,4 +79,3 @@ class Config:
         if not cls.ZEP_API_KEY:
             errors.append("ZEP_API_KEY 未配置")
         return errors
-

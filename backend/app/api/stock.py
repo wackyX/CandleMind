@@ -7,6 +7,7 @@ import traceback
 from flask import jsonify, request
 
 from . import stock_bp
+from ..services.stock_archive import list_prophecy_archives, read_prophecy_archive
 from ..services.stock_market_data import search_symbols
 from ..services.stock_prophecy import ProphecyRequest, run_prophecy
 from ..utils.logger import get_logger
@@ -53,3 +54,17 @@ def prophecy():
             ),
             500,
         )
+
+
+@stock_bp.route("/prophecies", methods=["GET"])
+def prophecy_archives():
+    limit = int(request.args.get("limit", 20))
+    return jsonify({"success": True, "data": list_prophecy_archives(limit)})
+
+
+@stock_bp.route("/prophecies/<archive_id>", methods=["GET"])
+def prophecy_archive_detail(archive_id: str):
+    archive = read_prophecy_archive(archive_id)
+    if not archive:
+        return jsonify({"success": False, "error": "推演档案不存在"}), 404
+    return jsonify({"success": True, "data": archive})

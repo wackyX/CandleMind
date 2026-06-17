@@ -15,6 +15,7 @@ from datetime import datetime
 
 from ..config import Config
 from ..utils.llm_client import LLMClient
+from .stock_archive import archive_prophecy, get_cached_prophecy, prophecy_cache_key, set_cached_prophecy
 from .stock_events import load_recent_events
 from .stock_indicators import build_indicator_series, historical_analogs, latest_snapshot
 from .stock_market_data import Candle, get_symbol_name, load_candles_with_provider, normalize_symbol
@@ -73,6 +74,19 @@ def generate_stock_seed_report(
 def run_prophecy(request: ProphecyRequest) -> dict:
     symbol = normalize_symbol(request.symbol)
     horizon = max(1, min(int(request.horizon or 5), 20))
+    request_payload = {
+        "symbol": symbol,
+        "horizon": horizon,
+        "days": max(60, min(int(request.days or 180), 500)),
+        "provider": request.provider,
+        "includeEvents": bool(request.include_events),
+        "useLlm": bool(request.use_llm),
+    }
+    cache_key = prophecy_cache_key(request_payload)
+    cached = get_cached_prophecy(cache_key)
+    if cached:
+        return cached
+
     candles, actual_provider = load_candles_with_provider(symbol, days=request.days, provider=request.provider)
     indicators = build_indicator_series(candles)
     snapshot = latest_snapshot(candles, indicators)
@@ -87,12 +101,13 @@ def run_prophecy(request: ProphecyRequest) -> dict:
         if request.use_llm
         else {"enabled": False, "status": "disabled", "summary": "本次请求未启用 LLM 裁决。"}
     )
+    llm_raw_response = llm_prophecy.pop("_rawResponse", None)
     scores = apply_llm_to_scenarios(baseline_scores, llm_prophecy)
     path = project_paths(candles[-1].close, snapshot, horizon, scores)
     forecast = build_llm_forecast(candles[-1].close, snapshot, horizon, scores, llm_prophecy) or baseline_forecast
     agents = agent_views(snapshot, analog, scores, events, llm_prophecy)
 
-    return {
+    result = {
         "symbol": symbol,
         "name": get_symbol_name(symbol),
         "market": "A股",
@@ -114,6 +129,26 @@ def run_prophecy(request: ProphecyRequest) -> dict:
         "agents": agents,
         "disclaimer": "本功能仅用于研究与策略复盘，不构成投资建议。",
     }
+    try:
+        archive_id = archive_prophecy(request_payload, result, cache_key, llm_raw_response=llm_raw_response)
+        result["archive"] = {
+            "id": archive_id,
+            "cacheKey": cache_key,
+            "status": "saved",
+        }
+    except Exception as exc:
+        result["archive"] = {
+            "id": None,
+            "cacheKey": cache_key,
+            "status": "failed",
+            "error": str(exc),
+        }
+    result["cache"] = {
+        "hit": False,
+        "key": cache_key,
+    }
+    set_cached_prophecy(cache_key, result)
+    return result
 
 
 def classify_trend(snapshot: dict) -> str:
@@ -383,7 +418,9 @@ JSON schema:
         data = parse_llm_prophecy_json(raw_response)
         if data is None:
             data = repair_llm_prophecy_json(client, raw_response)
-        return normalize_llm_prophecy(data, snapshot, horizon)
+        result = normalize_llm_prophecy(data, snapshot, horizon)
+        result["_rawResponse"] = raw_response
+        return result
     except Exception as exc:
         return {
             "enabled": True,
