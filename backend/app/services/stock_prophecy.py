@@ -413,7 +413,7 @@ JSON schema:
             messages,
             temperature=0.2,
             max_tokens=3600,
-            response_format={"type": "json_object"},
+            response_format={"type": "json_object"} if Config.LLM_SUPPORTS_JSON_MODE else None,
         )
         data = parse_llm_prophecy_json(raw_response)
         if data is None:
@@ -465,7 +465,7 @@ direction, probability, expectedReturnPct, maxUpsidePct, maxDownsidePct, scenari
         ],
         temperature=0,
         max_tokens=1800,
-        response_format={"type": "json_object"},
+        response_format={"type": "json_object"} if Config.LLM_SUPPORTS_JSON_MODE else None,
     )
     data = parse_llm_prophecy_json(repaired)
     if data is None:

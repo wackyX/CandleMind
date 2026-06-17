@@ -41,7 +41,21 @@
             <div class="entry-signals">
               <span>东方财富行情</span>
               <span>新闻公告事件</span>
-              <span>DeepSeek 裁决</span>
+              <span>{{ llmProviderLabel }} 模型裁决</span>
+            </div>
+            <div class="llm-config-card">
+              <div>
+                <span>当前模型</span>
+                <strong>{{ llmModelLabel }}</strong>
+                <small>{{ llmConfig?.baseUrl || '等待配置读取' }}</small>
+              </div>
+              <button type="button" @click="checkCurrentLlm" :disabled="checkingLlm">
+                {{ checkingLlm ? '检测中' : '检测模型' }}
+              </button>
+              <p v-if="llmCheck" :class="llmCheck.ok ? 'ok' : 'failed'">
+                {{ llmCheck.message }}
+                <template v-if="llmCheck.latencyMs">({{ llmCheck.latencyMs }}ms)</template>
+              </p>
             </div>
             <div class="entry-options">
               <label class="field" for="entry-stock-horizon">
@@ -70,7 +84,7 @@
               </label>
               <label class="toggle-field entry-toggle">
                 <input v-model="form.useLlm" type="checkbox" />
-                <span>启用 DeepSeek 裁决和预言</span>
+                <span>启用当前模型裁决和预言</span>
               </label>
             </div>
             <p v-if="error" class="entry-error">{{ error }}</p>
@@ -101,7 +115,7 @@
             <div class="instrument-steps">
               <div><span></span><strong>连接行情与实时 K 线</strong><b>01</b></div>
               <div><span></span><strong>整理新闻公告事件</strong><b>02</b></div>
-              <div><span></span><strong>请求 DeepSeek 主方向裁决</strong><b>03</b></div>
+              <div><span></span><strong>请求当前模型主方向裁决</strong><b>03</b></div>
               <div><span></span><strong>生成单一路径预言 K 线</strong><b>04</b></div>
             </div>
           </aside>
@@ -212,8 +226,16 @@
           </label>
           <label class="toggle-field">
             <input v-model="form.useLlm" type="checkbox" />
-            <span>启用 LLM 裁决和预言</span>
+            <span>启用当前模型裁决和预言</span>
           </label>
+          <div class="side-llm-status">
+            <span>模型</span>
+            <strong>{{ llmProviderLabel }} / {{ llmModelLabel }}</strong>
+            <button type="button" @click="checkCurrentLlm" :disabled="checkingLlm">
+              {{ checkingLlm ? '检测中' : '检测模型' }}
+            </button>
+            <small v-if="llmCheck" :class="llmCheck.ok ? 'ok' : 'failed'">{{ llmCheck.message }}</small>
+          </div>
           <button class="primary-button" @click="loadProphecy" :disabled="loading">
             {{ loading ? '正在生成' : '生成预言' }}
           </button>
@@ -391,7 +413,7 @@
           </section>
 
           <section v-if="report.llmProphecy" class="surface llm-panel">
-            <div class="panel-title">LLM 裁决层</div>
+            <div class="panel-title">当前模型裁决层</div>
             <div :class="['llm-status', report.llmProphecy.status === 'ok' ? 'ok' : 'fallback']">
               <span>{{ llmStatusText(report.llmProphecy.status) }}</span>
               <strong>{{ report.llmProphecy.summary }}</strong>
@@ -510,6 +532,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { checkLlmConfig, getLlmConfig } from '../api/config'
 import { generateStockProphecy, searchStockSymbols } from '../api/stock'
 
 const router = useRouter()
@@ -520,11 +543,14 @@ const error = ref('')
 const report = ref(null)
 const symbols = ref([])
 const theme = ref(localStorage.getItem('candlemind-theme') || 'dark')
+const llmConfig = ref(null)
+const llmCheck = ref(null)
+const checkingLlm = ref(false)
 const loadingSteps = [
   '连接东方财富并拉取近期日K',
   '计算均线、RSI、ATR和相似形态',
   '抓取近期新闻和公告事件',
-  '整理种子报告并请求 DeepSeek',
+  '整理种子报告并请求当前模型',
   '生成单一路径预言K线',
   '校验风险边界并渲染结果'
 ]
@@ -627,6 +653,36 @@ const forecastSummary = computed(() => {
 const loadSymbols = async () => {
   const res = await searchStockSymbols()
   symbols.value = res.data
+}
+
+const loadLlmConfig = async () => {
+  try {
+    const res = await getLlmConfig()
+    llmConfig.value = res.data
+  } catch (err) {
+    llmConfig.value = null
+  }
+}
+
+const checkCurrentLlm = async () => {
+  checkingLlm.value = true
+  llmCheck.value = null
+  try {
+    const res = await checkLlmConfig()
+    llmCheck.value = res.data
+    llmConfig.value = {
+      configured: res.data.configured,
+      baseUrl: res.data.baseUrl,
+      model: res.data.model,
+      supportsJsonMode: res.data.supportsJsonMode,
+      apiKeySet: res.data.apiKeySet,
+      apiKeyLooksPlaceholder: res.data.apiKeyLooksPlaceholder
+    }
+  } catch (err) {
+    llmCheck.value = { ok: false, message: err.message || '模型检测失败' }
+  } finally {
+    checkingLlm.value = false
+  }
 }
 
 const setTheme = (value) => {
@@ -745,8 +801,26 @@ const llmStatusText = (value) => {
   return map[value] || value || '未知'
 }
 
+const llmModelLabel = computed(() => {
+  if (!llmConfig.value) return '读取模型配置中'
+  if (!llmConfig.value.configured) return '未配置真实模型'
+  return llmConfig.value.model || '自定义模型'
+})
+
+const llmProviderLabel = computed(() => {
+  const baseUrl = llmConfig.value?.baseUrl || ''
+  if (!baseUrl) return 'OpenAI-compatible'
+  if (baseUrl.includes('deepseek')) return 'DeepSeek'
+  if (baseUrl.includes('dashscope') || baseUrl.includes('aliyun')) return '通义千问'
+  if (baseUrl.includes('localhost:11434') || baseUrl.includes('ollama')) return 'Ollama'
+  if (baseUrl.includes('localhost:1234')) return 'LM Studio'
+  if (baseUrl.includes('openai.com')) return 'OpenAI'
+  return 'OpenAI-compatible'
+})
+
 onMounted(() => {
   loadSymbols()
+  loadLlmConfig()
 })
 
 onBeforeUnmount(() => {
@@ -1023,6 +1097,75 @@ h1 {
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--soft);
+}
+
+.llm-config-card,
+.side-llm-status {
+  width: min(540px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--soft);
+}
+
+.llm-config-card span,
+.side-llm-status span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.llm-config-card strong,
+.side-llm-status strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.llm-config-card small,
+.side-llm-status small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font: 800 11px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.llm-config-card button,
+.side-llm-status button {
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 13px;
+  color: var(--text);
+  background: var(--panel);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.llm-config-card p {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.llm-config-card .ok,
+.side-llm-status .ok {
+  color: var(--accent);
+}
+
+.llm-config-card .failed,
+.side-llm-status .failed {
+  color: var(--risk);
 }
 
 .entry-options {
@@ -1467,6 +1610,12 @@ select option {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.65;
+}
+
+.side-llm-status {
+  width: 100%;
+  grid-template-columns: 1fr;
+  margin-top: 12px;
 }
 
 .metric-grid {

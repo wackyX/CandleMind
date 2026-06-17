@@ -11,7 +11,7 @@ Core flow:
 1. User enters an A-share stock code.
 2. Backend pulls recent K-line data, news, and announcements.
 3. Backend computes technical indicators and historical analogs.
-4. DeepSeek/OpenAI-compatible LLM makes the final direction judgment.
+4. The user-provided OpenAI-compatible LLM makes the final direction judgment.
 5. Frontend renders real candles plus one explicit forecast candlestick path.
 
 The app is based on `666ghj/MiroFish`, but the active product surface is CandleMind.
@@ -41,9 +41,10 @@ Never commit `.env` or real API keys.
 Required runtime env:
 
 ```env
-LLM_API_KEY=your_deepseek_or_openai_compatible_key
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL_NAME=deepseek-v4-pro
+LLM_API_KEY=your_api_key_here
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL_NAME=gpt-4o-mini
+LLM_SUPPORTS_JSON_MODE=true
 
 ZEP_API_KEY=dummy
 
@@ -57,7 +58,7 @@ FLASK_DEBUG=False
 
 Notes:
 
-- A real `LLM_API_KEY` is required for LLM prophecy.
+- A real `LLM_API_KEY` is required for LLM prophecy. Without it, CandleMind can still run with the rule baseline.
 - `ZEP_API_KEY=dummy` is acceptable for CandleMind. It exists for historical compatibility.
 - `.env` is ignored by git.
 - Prophecy archives are written under `data/prophecies` by default. `data/` is ignored by git.
@@ -124,6 +125,15 @@ Backend tests:
 ```bash
 cd backend && python -m pytest tests
 ```
+
+LLM config diagnostics:
+
+```bash
+curl -sS http://localhost:5001/api/config/llm
+curl -sS -X POST http://localhost:5001/api/config/check-llm
+```
+
+Use `LLM_SUPPORTS_JSON_MODE=false` for local providers that reject OpenAI JSON mode, such as some Ollama or LM Studio setups.
 
 ## Docker Deployment
 

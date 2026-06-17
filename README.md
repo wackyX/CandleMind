@@ -12,7 +12,7 @@ English | [中文文档](./README-ZH.md)
 
 ## Overview
 
-**CandleMind** is a research-oriented AI terminal for China A-share daily candlesticks. Given a stock code, it pulls recent real K-line data, news and announcements, combines technical indicators, historical analogs and DeepSeek reasoning, then renders a single forecast candlestick path after the real chart.
+**CandleMind** is an open-source research workstation for China A-share daily candlesticks. Given a stock code, it pulls recent real K-line data, news and announcements, combines technical indicators, historical analogs and the user-provided LLM, then renders a single forecast candlestick path after the real chart.
 
 This project is for research, review and product prototyping only. It is not investment advice.
 
@@ -20,7 +20,7 @@ This project is for research, review and product prototyping only. It is not inv
 
 - Query A-share daily K-line data, recent news and announcements by stock code
 - Calculate MA, RSI, ATR, BOLL, support/resistance and historical analogs
-- Use DeepSeek V4 Pro for direction judgment, reasoning and risk boundaries
+- Use your own OpenAI-compatible LLM for direction judgment, reasoning and risk boundaries
 - Append one explicit forecast candlestick path after the real K-line chart
 - Show LLM judgment, agent summaries, event signal and Stock Seed Report
 - Prefer Eastmoney data, with Sina historical K-line and Eastmoney realtime fallback
@@ -52,9 +52,10 @@ cp .env.example .env
 Example `.env`:
 
 ```env
-LLM_API_KEY=your_deepseek_or_openai_compatible_key
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL_NAME=deepseek-v4-pro
+LLM_API_KEY=your_api_key_here
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL_NAME=gpt-4o-mini
+LLM_SUPPORTS_JSON_MODE=true
 
 ZEP_API_KEY=dummy
 
@@ -68,10 +69,72 @@ FLASK_DEBUG=True
 
 Notes:
 
-- A real `LLM_API_KEY` is required for DeepSeek-powered prophecy
+- A real `LLM_API_KEY` is required for model-powered prophecy. Without it, CandleMind falls back to a rule baseline
 - `ZEP_API_KEY` is a legacy compatibility startup setting; CandleMind can use `dummy` for now
 - `.env` is ignored by git. Do not commit real secrets
 - Prophecy archives are stored under `data/prophecies` by default. `data/` is ignored by git
+
+## LLM Providers
+
+CandleMind does not require a specific vendor. Any OpenAI-compatible chat completions endpoint can be used.
+
+DeepSeek:
+
+```env
+LLM_API_KEY=your_deepseek_key
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL_NAME=deepseek-chat
+LLM_SUPPORTS_JSON_MODE=true
+```
+
+OpenAI:
+
+```env
+LLM_API_KEY=your_openai_key
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL_NAME=gpt-4o-mini
+LLM_SUPPORTS_JSON_MODE=true
+```
+
+Qwen / Alibaba Cloud DashScope:
+
+```env
+LLM_API_KEY=your_dashscope_key
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+LLM_MODEL_NAME=qwen-plus
+LLM_SUPPORTS_JSON_MODE=true
+```
+
+Ollama local model:
+
+```env
+LLM_API_KEY=ollama
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_MODEL_NAME=qwen2.5:14b
+LLM_SUPPORTS_JSON_MODE=false
+```
+
+LM Studio local model:
+
+```env
+LLM_API_KEY=lm-studio
+LLM_BASE_URL=http://localhost:1234/v1
+LLM_MODEL_NAME=local-model
+LLM_SUPPORTS_JSON_MODE=false
+```
+
+Check the current provider:
+
+```http
+GET /api/config/llm
+POST /api/config/check-llm
+```
+
+The frontend entry screen also shows the current model and provides a model check button.
+
+## Privacy
+
+CandleMind is self-hosted. API keys are read from your local `.env` or deployment environment. Stock code, K-line data, indicators, news and announcements are sent only to the LLM provider that you configure. Prophecy archives are saved locally under `data/prophecies` by default. The project itself does not collect telemetry.
 
 ## Install
 

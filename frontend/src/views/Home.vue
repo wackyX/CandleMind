@@ -42,7 +42,7 @@
             <button class="stock-prophecy-btn" @click="router.push({ name: 'StockProphecy' })">
               进入烛机 CandleMind <span>→</span>
             </button>
-            <p>A股日K、新闻事件、DeepSeek裁决与单一路径预言</p>
+            <p>A股日K、新闻事件、自带模型裁决与单一路径预言</p>
           </div>
            
           <div class="decoration-square"></div>
