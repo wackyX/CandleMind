@@ -17,10 +17,14 @@
         </header>
 
         <form class="entry-hero" @submit.prevent="loadProphecy">
-          <div class="entry-copy">
-            <h1>输入代码<br />点燃预言</h1>
-            <p>烛机拉取真实 A 股日 K、近期事件与模型裁决，在最后一根真实 K 线后生成未来路径。</p>
-            <label class="entry-pill" for="entry-stock-symbol">
+	          <div class="entry-copy">
+	            <h1>输入代码<br />点燃预言</h1>
+	            <p>烛机拉取真实 A 股日 K、近期事件与模型裁决，在最后一根真实 K 线后生成未来路径。</p>
+	            <div class="mode-switch" aria-label="推演模式">
+	              <button type="button" :class="{ active: form.mode === 'live' }" @click="form.mode = 'live'">实时预言</button>
+	              <button type="button" :class="{ active: form.mode === 'backtest' }" @click="form.mode = 'backtest'">历史回测</button>
+	            </div>
+	            <label class="entry-pill" for="entry-stock-symbol">
               <input
                 id="entry-stock-symbol"
                 v-model="form.symbol"
@@ -31,7 +35,7 @@
                 autofocus
                 aria-label="股票代码"
               />
-              <button type="submit">开始预言</button>
+	              <button type="submit">{{ form.mode === 'backtest' ? '开始回测' : '开始预言' }}</button>
               <datalist id="entry-symbol-list">
                 <option v-for="item in symbols" :key="item.symbol" :value="item.symbol">
                   {{ item.name }}
@@ -67,26 +71,34 @@
                   <option :value="20">20 个交易日</option>
                 </select>
               </label>
-              <label class="field" for="entry-stock-days">
-                <span>样本长度</span>
-                <select id="entry-stock-days" v-model.number="form.days">
+	              <label class="field" for="entry-stock-days">
+	                <span>样本长度</span>
+	                <select id="entry-stock-days" v-model.number="form.days">
                   <option :value="120">120 日</option>
                   <option :value="180">180 日</option>
                   <option :value="240">240 日</option>
                   <option :value="320">320 日</option>
-                </select>
-              </label>
-            </div>
-            <div class="entry-switches">
-              <label class="toggle-field entry-toggle">
-                <input v-model="form.includeEvents" type="checkbox" />
-                <span>拉取近期新闻和公告事件</span>
-              </label>
-              <label class="toggle-field entry-toggle">
-                <input v-model="form.useLlm" type="checkbox" />
-                <span>启用当前模型裁决和预言</span>
-              </label>
-            </div>
+	                </select>
+	              </label>
+	              <label v-if="form.mode === 'backtest'" class="field" for="entry-backtest-date">
+	                <span>回测日期</span>
+	                <input id="entry-backtest-date" v-model="form.asOfDate" type="date" />
+	              </label>
+	            </div>
+	            <div class="entry-switches">
+	              <label v-if="form.mode === 'live'" class="toggle-field entry-toggle">
+	                <input v-model="form.includeEvents" type="checkbox" />
+	                <span>拉取近期新闻和公告事件</span>
+	              </label>
+	              <label v-if="form.mode === 'live'" class="toggle-field entry-toggle">
+	                <input v-model="form.useLlm" type="checkbox" />
+	                <span>启用当前模型裁决和预言</span>
+	              </label>
+	              <label v-else class="toggle-field entry-toggle">
+	                <input v-model="form.useBacktestLlm" type="checkbox" />
+	                <span>回测时启用当前模型</span>
+	              </label>
+	            </div>
             <p v-if="error" class="entry-error">{{ error }}</p>
           </div>
 
@@ -144,6 +156,26 @@
             <p>{{ form.symbol }} 的行情、事件和模型裁决正在汇合，完成后会一次性渲染完整结果。</p>
           </div>
           <div class="prophecy-instrument loading-instrument">
+            <div class="live-kline-loader">
+              <div class="loader-head">
+                <span>逐日回放</span>
+                <strong>{{ loadingSteps[loadingStepIndex] }}</strong>
+              </div>
+              <div class="loader-chart" aria-hidden="true">
+                <i
+                  v-for="(item, index) in loadingCandles"
+                  :key="`loader-candle-${index}`"
+                  :class="['loader-candle', item.tone]"
+                  :style="{
+                    '--x': item.x,
+                    '--b': item.b,
+                    '--h': item.h,
+                    '--d': `${index * 0.13}s`
+                  }"
+                ></i>
+                <span class="scan-beam"></span>
+              </div>
+            </div>
             <div class="loading-stack">
               <div
                 v-for="(step, index) in loadingSteps"
@@ -191,9 +223,13 @@
 
     <main class="terminal-grid">
       <aside class="side-console">
-        <section class="surface control-panel">
-          <div class="panel-title">A股日K推演</div>
-          <label class="field" for="stock-symbol">
+	        <section class="surface control-panel">
+	          <div class="panel-title">A股日K推演</div>
+	          <div class="mode-switch compact" aria-label="推演模式">
+	            <button type="button" :class="{ active: form.mode === 'live' }" @click="form.mode = 'live'">实时</button>
+	            <button type="button" :class="{ active: form.mode === 'backtest' }" @click="form.mode = 'backtest'">回测</button>
+	          </div>
+	          <label class="field" for="stock-symbol">
             <span>股票代码</span>
             <input id="stock-symbol" v-model="form.symbol" list="symbol-list" maxlength="6" inputmode="numeric" />
             <datalist id="symbol-list">
@@ -211,23 +247,31 @@
               <option :value="20">20 个交易日</option>
             </select>
           </label>
-          <label class="field" for="stock-days">
+	          <label class="field" for="stock-days">
             <span>样本长度</span>
             <select id="stock-days" v-model.number="form.days">
               <option :value="120">120 日</option>
               <option :value="180">180 日</option>
               <option :value="240">240 日</option>
               <option :value="320">320 日</option>
-            </select>
-          </label>
-          <label class="toggle-field">
-            <input v-model="form.includeEvents" type="checkbox" />
-            <span>拉取近期新闻和公告事件</span>
-          </label>
-          <label class="toggle-field">
-            <input v-model="form.useLlm" type="checkbox" />
-            <span>启用当前模型裁决和预言</span>
-          </label>
+	            </select>
+	          </label>
+	          <label v-if="form.mode === 'backtest'" class="field" for="stock-backtest-date">
+	            <span>回测日期</span>
+	            <input id="stock-backtest-date" v-model="form.asOfDate" type="date" />
+	          </label>
+	          <label v-if="form.mode === 'live'" class="toggle-field">
+	            <input v-model="form.includeEvents" type="checkbox" />
+	            <span>拉取近期新闻和公告事件</span>
+	          </label>
+	          <label v-if="form.mode === 'live'" class="toggle-field">
+	            <input v-model="form.useLlm" type="checkbox" />
+	            <span>启用当前模型裁决和预言</span>
+	          </label>
+	          <label v-else class="toggle-field">
+	            <input v-model="form.useBacktestLlm" type="checkbox" />
+	            <span>回测时启用当前模型</span>
+	          </label>
           <div class="side-llm-status">
             <span>模型</span>
             <strong>{{ llmProviderLabel }} / {{ llmModelLabel }}</strong>
@@ -236,9 +280,9 @@
             </button>
             <small v-if="llmCheck" :class="llmCheck.ok ? 'ok' : 'failed'">{{ llmCheck.message }}</small>
           </div>
-          <button class="primary-button" @click="loadProphecy" :disabled="loading">
-            {{ loading ? '正在生成' : '生成预言' }}
-          </button>
+	          <button class="primary-button" @click="loadProphecy" :disabled="loading">
+	            {{ loading ? '正在生成' : form.mode === 'backtest' ? '运行回测' : '生成预言' }}
+	          </button>
           <p class="micro-copy">K线优先来自东方财富，必要时用新浪历史行情和东方财富实时行情兜底。结果仅用于研究和复盘。</p>
         </section>
 
@@ -284,9 +328,9 @@
                   <span>{{ report.market }} {{ report.period }}</span>
                   <strong>{{ report.symbol }}</strong>
                 </div>
-                <h1>{{ report.name }} 烛机预言</h1>
-                <p>未来 {{ report.horizon }} 个交易日，基于真实日K、近期新闻公告和相似形态生成单一路径。</p>
-              </div>
+	                <h1>{{ report.name }} 烛机预言</h1>
+	                <p>{{ report.mode === 'backtest' ? `以 ${report.backtest?.asOfDate} 为历史切点，生成当时可见数据下的预言，并对比之后真实走势。` : `未来 ${report.horizon} 个交易日，基于真实日K、近期新闻公告和相似形态生成单一路径。` }}</p>
+	              </div>
               <div v-if="forecastSummary" :class="['forecast-panel', directionTone(report.forecast.direction)]">
                 <span>主预言</span>
                 <strong>{{ forecastSummary.direction }} {{ report.forecast.probability }}%</strong>
@@ -303,8 +347,10 @@
               </div>
             </div>
 
-            <div class="chart-frame">
-              <svg class="kline-chart" :viewBox="`0 0 ${chart.width} ${chart.height}`" role="img">
+            <div class="chart-analysis-layout">
+              <div class="chart-main-column">
+                <div class="chart-frame">
+                  <svg class="kline-chart" :viewBox="`0 0 ${chart.width} ${chart.height}`" role="img">
               <g class="grid">
                 <line
                   v-for="tick in chart.priceTicks"
@@ -352,45 +398,230 @@
               </text>
               <g class="candles">
                 <g v-for="item in chart.candles" :key="item.date">
-                  <line :x1="item.x" :x2="item.x" :y1="item.highY" :y2="item.lowY" :class="item.up ? 'up' : 'down'" />
+                  <line :x1="item.x" :x2="item.x" :y1="item.highY" :y2="item.lowY" :class="item.up ? 'up' : 'down'" :style="{ '--d': `${item.animationIndex * 0.014}s` }" />
                   <rect
                     :x="item.x - item.width / 2"
                     :y="Math.min(item.openY, item.closeY)"
                     :width="item.width"
                     :height="Math.max(1, Math.abs(item.closeY - item.openY))"
                     :class="item.up ? 'up-fill' : 'down-fill'"
+                    :style="{ '--d': `${item.animationIndex * 0.014}s` }"
                   />
                 </g>
               </g>
-              <g class="forecast-candles">
-                <g v-for="item in chart.forecastCandles" :key="`forecast-${item.day}`">
-                  <line :x1="item.x" :x2="item.x" :y1="item.highY" :y2="item.lowY" :class="item.up ? 'forecast-up' : 'forecast-down'" />
-                  <rect
-                    :x="item.x - item.width / 2"
-                    :y="Math.min(item.openY, item.closeY)"
-                    :width="item.width"
-                    :height="Math.max(2, Math.abs(item.closeY - item.openY))"
-                    :class="item.up ? 'forecast-up-fill' : 'forecast-down-fill'"
+	              <g class="forecast-candles">
+                <g
+                  v-for="item in chart.forecastCandles"
+                  :key="`forecast-${item.day}`"
+                  :class="[
+                    'prophecy-candle',
+                    item.up ? 'is-up' : 'is-down',
+                    item.wickMode,
+                    { active: selectedForecastIndex === item.animationIndex }
+                  ]"
+                  role="button"
+                  tabindex="0"
+                  :aria-label="`查看第${item.day}个交易日预言解释`"
+                  :style="{ '--d': `${2 + item.animationIndex * 0.78}s`, '--body-shift': `${item.bodyShift}px` }"
+                  @mouseenter="selectedForecastIndex = item.animationIndex"
+                  @focus="selectedForecastIndex = item.animationIndex"
+                  @click="selectedForecastIndex = item.animationIndex"
+                  @keydown.enter.prevent="selectedForecastIndex = item.animationIndex"
+                  @keydown.space.prevent="selectedForecastIndex = item.animationIndex"
+                >
+                  <line
+                    class="forecast-wick upper-wick"
+                    :x1="item.x"
+                    :x2="item.x"
+                    :y1="item.highY"
+                    :y2="item.bodyTopY"
                   />
-                </g>
+                  <line
+                    class="forecast-wick lower-wick"
+                    :x1="item.x"
+                    :x2="item.x"
+                    :y1="item.bodyBottomY"
+                    :y2="item.lowY"
+                  />
+                  <rect
+                    class="forecast-body"
+                    :x="item.x - item.width / 2"
+                    :y="item.bodyTopY"
+                    :width="item.width"
+                    :height="item.bodyHeight"
+                  />
+                  <circle
+                    v-if="item.wickMode === 'upper-first' && item.upperWickHeight > 2"
+                    class="wick-flash upper-flash"
+                    :cx="item.x"
+                    :cy="item.highY"
+                    r="3.5"
+                  />
+                  <circle
+                    v-if="item.wickMode === 'lower-first' && item.lowerWickHeight > 2"
+                    class="wick-flash lower-flash"
+                    :cx="item.x"
+                    :cy="item.lowY"
+                    r="3.5"
+                  />
+	              </g>
+	              <g v-if="chart.actualCandles.length" class="actual-candles">
+	                <g v-for="item in chart.actualCandles" :key="`actual-${item.date}`">
+	                  <line :x1="item.x" :x2="item.x" :y1="item.highY" :y2="item.lowY" />
+	                  <rect
+	                    :x="item.x - item.width / 2"
+	                    :y="item.bodyTopY"
+	                    :width="item.width"
+	                    :height="item.bodyHeight"
+	                  />
+	                </g>
+	              </g>
               </g>
               <path class="ma-line ma5" :d="chart.ma5Path" />
               <path class="ma-line ma20" :d="chart.ma20Path" />
               <line class="level support" :x1="chart.padding.left" :x2="chart.width - chart.padding.right" :y1="chart.supportY" :y2="chart.supportY" />
               <line class="level resistance" :x1="chart.padding.left" :x2="chart.width - chart.padding.right" :y1="chart.resistanceY" :y2="chart.resistanceY" />
-              </svg>
-              <div class="chart-stamp">
-                <span>生成时间</span>
-                <strong>{{ formatDateTime(report.generatedAt) }}</strong>
-              </div>
-            </div>
+                  </svg>
+                  <div class="chart-stamp">
+                    <span>生成时间</span>
+                    <strong>{{ formatDateTime(report.generatedAt) }}</strong>
+                  </div>
+                </div>
 
-            <div class="legend-row">
-              <span><i class="dot up-dot"></i>上涨K线</span>
-              <span><i class="dot down-dot"></i>下跌K线</span>
-              <span><i class="line ma5-dot"></i>MA5</span>
-              <span><i class="line ma20-dot"></i>MA20</span>
-              <span><i class="dot prophecy-dot"></i>单一路径预言K线</span>
+                <div class="legend-row">
+                  <span><i class="dot up-dot"></i>上涨K线</span>
+                  <span><i class="dot down-dot"></i>下跌K线</span>
+                  <span><i class="line ma5-dot"></i>MA5</span>
+	                  <span><i class="line ma20-dot"></i>MA20</span>
+	                  <span><i class="dot prophecy-dot"></i>单一路径预言K线</span>
+	                  <span v-if="report.backtest"><i class="dot actual-dot"></i>回测真实K线</span>
+	                </div>
+              </div>
+
+              <aside v-if="credibilityBreakdown" class="credibility-radar-panel">
+                <div class="radar-head">
+                  <div>
+                    <span>可信度雷达</span>
+                    <strong>{{ credibilityBreakdown.score }}</strong>
+                  </div>
+                  <b>{{ credibilityBreakdown.label }}</b>
+                </div>
+                <svg class="credibility-radar" viewBox="0 0 240 240" role="img" aria-label="预言可信度雷达图">
+                  <polygon
+                    v-for="points in credibilityBreakdown.radarGrid"
+                    :key="`grid-${points}`"
+                    class="radar-grid-shape"
+                    :points="points"
+                  />
+                  <line
+                    v-for="axis in credibilityBreakdown.radarAxes"
+                    :key="`axis-${axis.key}`"
+                    class="radar-axis"
+                    x1="120"
+                    y1="120"
+                    :x2="axis.x"
+                    :y2="axis.y"
+                  />
+                  <polygon class="radar-score-shape" :points="credibilityBreakdown.radarPolygon" />
+                  <circle
+                    v-for="point in credibilityBreakdown.radarPoints"
+                    :key="`point-${point.key}`"
+                    class="radar-point"
+                    :cx="point.x"
+                    :cy="point.y"
+                    r="4"
+                  />
+                  <text
+                    v-for="axis in credibilityBreakdown.radarAxes"
+                    :key="`label-${axis.key}`"
+                    class="radar-label"
+                    :x="axis.labelX"
+                    :y="axis.labelY"
+                    text-anchor="middle"
+                  >
+                    {{ axis.shortName }}
+                  </text>
+                  <text class="radar-center-score" x="120" y="116" text-anchor="middle">{{ credibilityBreakdown.score }}</text>
+                  <text class="radar-center-label" x="120" y="135" text-anchor="middle">综合</text>
+                </svg>
+                <div class="radar-legend-list">
+                  <div v-for="item in credibilityBreakdown.items" :key="`radar-note-${item.key}`">
+                    <span>{{ item.name }}</span>
+                    <strong>{{ item.score }}</strong>
+                    <p>{{ item.shortReason }}</p>
+                  </div>
+                </div>
+              </aside>
+	            </div>
+
+	            <div v-if="backtestSummary" class="backtest-compare-panel">
+	              <div class="compare-verdict">
+	                <span>历史回测</span>
+	                <strong :class="backtestSummary.directionHit ? 'positive' : 'negative'">
+	                  {{ backtestSummary.directionHit ? '方向命中' : '方向偏离' }}
+	                </strong>
+	                <small>命中分 {{ backtestSummary.hitScore }}</small>
+	              </div>
+	              <div class="compare-metrics">
+	                <div>
+	                  <span>回测切点</span>
+	                  <strong>{{ backtestSummary.baseDate }}</strong>
+	                </div>
+	                <div>
+	                  <span>预言收益</span>
+	                  <strong :class="signedClass(backtestSummary.predictedReturnPct)">{{ backtestSummary.predictedReturnPct }}%</strong>
+	                </div>
+	                <div>
+	                  <span>真实收益</span>
+	                  <strong :class="signedClass(backtestSummary.actualReturnPct)">{{ backtestSummary.actualReturnPct }}%</strong>
+	                </div>
+	                <div>
+	                  <span>平均偏差</span>
+	                  <strong>{{ backtestSummary.avgAbsErrorPct }}%</strong>
+	                </div>
+	              </div>
+	            </div>
+
+	            <div v-if="selectedForecastInsight" class="forecast-insight">
+              <div class="insight-head">
+                <span>第 {{ selectedForecastInsight.day }} 个交易日</span>
+                <strong>{{ selectedForecastInsight.title }}</strong>
+              </div>
+              <p>{{ selectedForecastInsight.story }}</p>
+              <div class="insight-metrics">
+                <div>
+                  <span>开</span>
+                  <strong>{{ selectedForecastInsight.open }}</strong>
+                </div>
+                <div>
+                  <span>高</span>
+                  <strong>{{ selectedForecastInsight.high }}</strong>
+                </div>
+                <div>
+                  <span>低</span>
+                  <strong>{{ selectedForecastInsight.low }}</strong>
+                </div>
+                <div>
+                  <span>收</span>
+                  <strong :class="signedClass(selectedForecastInsight.changePct)">{{ selectedForecastInsight.close }}</strong>
+                </div>
+              </div>
+              <div class="insight-notes">
+                <span>{{ selectedForecastInsight.wickNote }}</span>
+                <span>{{ selectedForecastInsight.rangeNote }}</span>
+                <span>{{ selectedForecastInsight.invalidNote }}</span>
+              </div>
+              <div class="forecast-day-tabs" aria-label="预言交易日选择">
+                <button
+                  v-for="item in forecastInsights"
+                  :key="`forecast-tab-${item.day}`"
+                  type="button"
+                  :class="{ active: selectedForecastIndex === item.index }"
+                  @click="selectedForecastIndex = item.index"
+                >
+                  D{{ item.day }}
+                </button>
+              </div>
             </div>
           </section>
 
@@ -533,7 +764,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { checkLlmConfig, getLlmConfig } from '../api/config'
-import { generateStockProphecy, searchStockSymbols } from '../api/stock'
+import { backtestStockProphecy, generateStockProphecy, searchStockSymbols } from '../api/stock'
 
 const router = useRouter()
 const loading = ref(false)
@@ -546,6 +777,7 @@ const theme = ref(localStorage.getItem('candlemind-theme') || 'dark')
 const llmConfig = ref(null)
 const llmCheck = ref(null)
 const checkingLlm = ref(false)
+const selectedForecastIndex = ref(0)
 const loadingSteps = [
   '连接东方财富并拉取近期日K',
   '计算均线、RSI、ATR和相似形态',
@@ -554,30 +786,58 @@ const loadingSteps = [
   '生成单一路径预言K线',
   '校验风险边界并渲染结果'
 ]
+const loadingCandles = [
+  { x: '7%', b: '28%', h: '52px', tone: 'gain' },
+  { x: '13%', b: '36%', h: '66px', tone: 'gain' },
+  { x: '19%', b: '32%', h: '44px', tone: 'risk' },
+  { x: '25%', b: '41%', h: '78px', tone: 'gain' },
+  { x: '31%', b: '45%', h: '58px', tone: 'gain' },
+  { x: '37%', b: '38%', h: '84px', tone: 'risk' },
+  { x: '43%', b: '48%', h: '70px', tone: 'gain' },
+  { x: '49%', b: '52%', h: '62px', tone: 'gain' },
+  { x: '55%', b: '44%', h: '76px', tone: 'risk' },
+  { x: '61%', b: '51%', h: '88px', tone: 'gain' },
+  { x: '67%', b: '58%', h: '68px', tone: 'gain' },
+  { x: '74%', b: '56%', h: '86px', tone: 'prophecy' },
+  { x: '81%', b: '63%', h: '72px', tone: 'prophecy' },
+  { x: '88%', b: '69%', h: '58px', tone: 'prophecy' }
+]
+
+function defaultBacktestDate() {
+  const date = new Date()
+  date.setDate(date.getDate() - 30)
+  return date.toISOString().slice(0, 10)
+}
+
 const form = reactive({
+  mode: 'live',
   symbol: '600519',
   horizon: 5,
   days: 180,
+  asOfDate: defaultBacktestDate(),
   includeEvents: true,
-  useLlm: true
+  useLlm: true,
+  useBacktestLlm: false
 })
 
 const chart = computed(() => {
-  if (!report.value) {
-    return { width: 980, height: 440, padding: { left: 56, right: 62, top: 26, bottom: 36 }, priceTicks: [], candles: [], forecastCandles: [], forecastBand: null }
-  }
+	  if (!report.value) {
+	    return { width: 980, height: 440, padding: { left: 56, right: 62, top: 26, bottom: 36 }, priceTicks: [], candles: [], forecastCandles: [], actualCandles: [], forecastBand: null }
+	  }
   const width = 980
   const height = 440
   const padding = { left: 56, right: 62, top: 26, bottom: 36 }
-  const visibleCandles = report.value.candles.slice(-88)
-  const forecastSource = report.value.forecast?.candles || []
-  const projectedValues = forecastSource.flatMap((item) => [item.high, item.low, item.open, item.close])
-  const allPrices = visibleCandles.flatMap((item) => [item.high, item.low]).concat(projectedValues)
+	  const visibleCandles = report.value.candles.slice(-88)
+	  const forecastSource = report.value.forecast?.candles || []
+	  const actualSource = report.value.backtest?.actualCandles || []
+	  const projectedValues = forecastSource.flatMap((item) => [item.high, item.low, item.open, item.close])
+	  const actualValues = actualSource.flatMap((item) => [item.high, item.low, item.open, item.close])
+	  const allPrices = visibleCandles.flatMap((item) => [item.high, item.low]).concat(projectedValues, actualValues)
   const minPrice = Math.min(...allPrices) * 0.985
   const maxPrice = Math.max(...allPrices) * 1.015
   const innerWidth = width - padding.left - padding.right
   const innerHeight = height - padding.top - padding.bottom
-  const totalSlots = visibleCandles.length + report.value.paths.length + 2
+	  const totalSlots = visibleCandles.length + Math.max(report.value.paths.length, actualSource.length) + 2
   const xStep = innerWidth / totalSlots
   const candleWidth = Math.max(3, Math.min(9, xStep * 0.58))
   const y = (value) => padding.top + (maxPrice - value) / (maxPrice - minPrice) * innerHeight
@@ -591,20 +851,54 @@ const chart = computed(() => {
     closeY: y(item.close),
     highY: y(item.high),
     lowY: y(item.low),
-    up: item.close >= item.open
+    up: item.close >= item.open,
+    animationIndex: index
   }))
-  const forecastCandles = []
+	  const forecastCandles = []
   forecastSource.forEach((item, index) => {
+    const openY = y(item.open)
+    const closeY = y(item.close)
+    const highY = y(item.high)
+    const lowY = y(item.low)
+    const bodyTopY = Math.min(openY, closeY)
+    const bodyBottomY = Math.max(openY, closeY)
+    const upperWickHeight = Math.max(0, bodyTopY - highY)
+    const lowerWickHeight = Math.max(0, lowY - bodyBottomY)
+    const wickMode = upperWickHeight >= lowerWickHeight ? 'upper-first' : 'lower-first'
     forecastCandles.push({
       ...item,
       x: x(lastIndex + index + 1),
       width: candleWidth,
-      openY: y(item.open),
-      closeY: y(item.close),
-      highY: y(item.high),
-      lowY: y(item.low),
-      up: item.close >= item.open
-    })
+      openY,
+      closeY,
+      highY,
+      lowY,
+      bodyTopY,
+      bodyBottomY,
+      bodyHeight: Math.max(2, Math.abs(closeY - openY)),
+      upperWickHeight,
+      lowerWickHeight,
+      wickMode,
+      bodyShift: wickMode === 'upper-first' ? -7 : 7,
+      up: item.close >= item.open,
+      animationIndex: index
+	  })
+	  const actualCandles = actualSource.map((item, index) => {
+	    const openY = y(item.open)
+	    const closeY = y(item.close)
+	    return {
+	      ...item,
+	      x: x(lastIndex + index + 1),
+	      width: Math.max(2, candleWidth * 0.54),
+	      openY,
+	      closeY,
+	      highY: y(item.high),
+	      lowY: y(item.low),
+	      bodyTopY: Math.min(openY, closeY),
+	      bodyHeight: Math.max(2, Math.abs(closeY - openY)),
+	      up: item.close >= item.open
+	    }
+	  })
   })
   const visibleIndicators = report.value.indicators.slice(-88)
   const makeLine = (values, offset = 0) => values
@@ -620,8 +914,9 @@ const chart = computed(() => {
     height,
     padding,
     priceTicks: ticks,
-    candles,
-    forecastCandles,
+	    candles,
+	    forecastCandles,
+	    actualCandles,
     forecastBand: forecastCandles.length
       ? {
           x: forecastCandles[0].x - xStep / 2,
@@ -648,6 +943,189 @@ const forecastSummary = computed(() => {
     close: close.toFixed(2),
     deltaPct
   }
+})
+
+const backtestSummary = computed(() => report.value?.backtest?.comparison || null)
+
+const credibilityBreakdown = computed(() => {
+  if (!report.value?.forecast || !report.value?.snapshot) return null
+  const snapshot = report.value.snapshot
+  const forecast = report.value.forecast
+  const llm = report.value.llmProphecy || {}
+  const events = report.value.events || {}
+  const analog = report.value.analog || {}
+  const close = Number(snapshot.close || 0)
+  const ma5 = Number(snapshot.ma5 || close)
+  const ma20 = Number(snapshot.ma20 || close)
+  const ma60 = Number(snapshot.ma60 || close)
+  const rsi = Number(snapshot.rsi14 || 50)
+  const atr = Number(snapshot.atr14 || 0)
+  const support = Number(snapshot.support || close)
+  const resistance = Number(snapshot.resistance || close)
+  const direction = forecast.direction
+  const eventScore = Number(events.signal?.score || 0)
+  const eventCount = Number(events.events?.length || 0)
+  const analogUp = analog.upProbability == null ? 50 : Number(analog.upProbability)
+  const sampleSize = Number(analog.sampleSize || 0)
+  const riskDistance = close ? Math.min(
+    Math.abs(close - support) / close * 100,
+    Math.abs(resistance - close) / close * 100
+  ) : 0
+  const atrPct = close ? atr / close * 100 : 0
+
+  const technicalAlignment = direction === 'bull'
+    ? (close >= ma20 ? 18 : -8) + (ma5 >= ma20 ? 12 : -4) + (rsi >= 45 && rsi <= 68 ? 10 : rsi > 72 ? -8 : 2)
+    : direction === 'bear'
+      ? (close <= ma20 ? 18 : -8) + (ma5 <= ma20 ? 12 : -4) + (rsi <= 55 && rsi >= 32 ? 10 : rsi < 28 ? -8 : 2)
+      : (Math.abs(close - ma20) / Math.max(close, 0.01) < 0.035 ? 18 : 6) + (rsi > 38 && rsi < 66 ? 14 : 2)
+  const analogAlignment = direction === 'bull'
+    ? (analogUp - 50) * 0.55
+    : direction === 'bear'
+      ? (50 - analogUp) * 0.55
+      : (18 - Math.abs(analogUp - 50) * 0.35)
+  const technicalScore = clampScore(52 + technicalAlignment + analogAlignment + Math.min(10, sampleSize / 4))
+
+  const eventAlignment = direction === 'bull'
+    ? eventScore * 2.1
+    : direction === 'bear'
+      ? -eventScore * 2.1
+      : 8 - Math.abs(eventScore)
+  const eventScoreValue = clampScore(50 + eventAlignment + Math.min(10, eventCount * 1.2))
+
+  const llmScore = llm.status === 'ok'
+    ? clampScore(48 + Number(llm.probability || forecast.probability || 50) * 0.52)
+    : clampScore(42 + Number(forecast.probability || 50) * 0.24)
+
+  const riskPenalty = Math.max(0, atrPct * 3.2) + Math.max(0, 3 - riskDistance) * 4
+  const riskScore = clampScore(78 - riskPenalty + (direction === 'neutral' ? 5 : 0))
+
+  const items = [
+    {
+      key: 'technical',
+      name: '技术结构',
+      score: technicalScore,
+      tone: scoreTone(technicalScore),
+      shortName: '技术',
+      reason: direction === 'bull'
+        ? `收盘价相对 MA20 ${close >= ma20 ? '占优' : '偏弱'}，MA5 ${ma5 >= ma20 ? '压在 MA20 上方' : '仍在修复中'}。`
+        : direction === 'bear'
+          ? `收盘价相对 MA20 ${close <= ma20 ? '偏弱' : '仍有支撑'}，MA5 ${ma5 <= ma20 ? '低于 MA20' : '尚未转弱'}。`
+          : `价格围绕 MA20 的偏离度为 ${formatPct(close && ma20 ? (close - ma20) / close * 100 : 0)}，震荡结构权重更高。`,
+      shortReason: `MA/RSI 与相似形态 ${technicalScore >= 72 ? '同向' : technicalScore >= 58 ? '部分同向' : '分歧较大'}`,
+      detail: `RSI14 ${rsi.toFixed(2)}，相似形态上涨概率 ${analog.upProbability ?? '--'}%，样本 ${sampleSize}。`
+    },
+    {
+      key: 'events',
+      name: '事件驱动',
+      score: eventScoreValue,
+      tone: scoreTone(eventScoreValue),
+      shortName: '事件',
+      reason: events.signal?.summary || '本次没有足够强的新闻公告事件，事件面权重自动降低。',
+      shortReason: eventCount ? `纳入 ${eventCount} 条事件，事件分 ${eventScore.toFixed(1)}` : '事件样本不足',
+      detail: `事件分 ${eventScore.toFixed(2)}，已纳入 ${eventCount} 条新闻公告。`
+    },
+    {
+      key: 'llm',
+      name: '模型裁决',
+      score: llmScore,
+      tone: scoreTone(llmScore),
+      shortName: '模型',
+      reason: llm.status === 'ok'
+        ? (llm.summary || '当前模型已参与方向裁决。')
+        : '当前模型不可用或返回异常，本项由规则基线承接。',
+      shortReason: llm.status === 'ok' ? `模型概率 ${llm.probability || forecast.probability || '--'}%` : '规则基线承接',
+      detail: llm.status === 'ok'
+        ? `${llmProviderLabel.value} 输出概率 ${llm.probability || forecast.probability || '--'}%。`
+        : '建议配置真实 LLM 后再提高本项可信度。'
+    },
+    {
+      key: 'risk',
+      name: '风险边界',
+      score: riskScore,
+      tone: scoreTone(riskScore),
+      shortName: '风险',
+      reason: `支撑 ${support.toFixed(2)}，压力 ${resistance.toFixed(2)}，距离最近边界约 ${riskDistance.toFixed(2)}%。`,
+      shortReason: `边界距离 ${riskDistance.toFixed(1)}%，ATR ${atrPct.toFixed(1)}%`,
+      detail: `ATR 占比 ${atrPct.toFixed(2)}%，波动越大，预言可信度越保守。`
+    }
+  ]
+  const score = Math.round(items.reduce((sum, item) => sum + item.score, 0) / items.length)
+  const radar = buildRadarGeometry(items)
+  return {
+    score,
+    label: score >= 72 ? '支撑较强' : score >= 58 ? '中等可信' : '谨慎参考',
+    tone: scoreTone(score),
+    summary: `本次 ${directionLabel(direction)} 预言由四层信号共同支撑，分数越高代表方向、事件、模型和风险边界越一致。`,
+    radarAxes: radar.axes,
+    radarGrid: radar.grid,
+    radarPoints: radar.points,
+    radarPolygon: radar.polygon,
+    items
+  }
+})
+
+const forecastInsights = computed(() => {
+  const forecast = report.value?.forecast
+  const candles = forecast?.candles || []
+  if (!candles.length) return []
+  const baseClose = Number(report.value?.snapshot?.close || candles[0].open || 0)
+  return candles.map((item, index) => {
+    const previousClose = Number(index > 0 ? candles[index - 1].close : baseClose)
+    const open = Number(item.open)
+    const high = Number(item.high)
+    const low = Number(item.low)
+    const close = Number(item.close)
+    const bodyHigh = Math.max(open, close)
+    const bodyLow = Math.min(open, close)
+    const upperWick = Math.max(0, high - bodyHigh)
+    const lowerWick = Math.max(0, bodyLow - low)
+    const range = Math.max(0.01, high - low)
+    const changePct = previousClose ? ((close - previousClose) / previousClose * 100) : 0
+    const intradayPct = open ? ((close - open) / open * 100) : 0
+    const upperRatio = upperWick / range
+    const lowerRatio = lowerWick / range
+    const wickMode = upperWick >= lowerWick ? 'upper-first' : 'lower-first'
+    const direction = close >= open ? '收红' : '承压'
+    const shape = wickMode === 'upper-first'
+      ? upperRatio > 0.32 ? '冲高回落' : '上探后收敛'
+      : lowerRatio > 0.32 ? '下探反弹' : '回踩后企稳'
+    const tone = forecast.direction === 'bull'
+      ? '主方向偏多'
+      : forecast.direction === 'bear'
+        ? '主方向偏空'
+        : '主方向震荡'
+    const story = wickMode === 'upper-first'
+      ? `盘中先尝试上攻到 ${high.toFixed(2)}，随后资金兑现或阻力压制，价格回收到 ${close.toFixed(2)}，形成${shape}。`
+      : `盘中先回踩到 ${low.toFixed(2)}，随后有承接修复，价格反弹到 ${close.toFixed(2)}，形成${shape}。`
+    const wickNote = wickMode === 'upper-first'
+      ? `上影占振幅 ${(upperRatio * 100).toFixed(0)}%，重点观察 ${high.toFixed(2)} 附近是否再次放量突破。`
+      : `下影占振幅 ${(lowerRatio * 100).toFixed(0)}%，重点观察 ${low.toFixed(2)} 附近是否继续有承接。`
+    const invalidNote = forecast.direction === 'bull'
+      ? `跌破 ${low.toFixed(2)} 后，本日偏多预言失效。`
+      : forecast.direction === 'bear'
+        ? `突破 ${high.toFixed(2)} 后，本日偏空预言失效。`
+        : `有效突破 ${high.toFixed(2)} 或跌破 ${low.toFixed(2)} 后，震荡预言失效。`
+    return {
+      index,
+      day: item.day ?? index + 1,
+      title: `${shape} · ${direction}`,
+      story: `${tone}，${story}`,
+      open: open.toFixed(2),
+      high: high.toFixed(2),
+      low: low.toFixed(2),
+      close: close.toFixed(2),
+      changePct: changePct.toFixed(2),
+      wickNote,
+      rangeNote: `日内振幅 ${(range / Math.max(0.01, open) * 100).toFixed(2)}%，开收变化 ${intradayPct.toFixed(2)}%。`,
+      invalidNote
+    }
+  })
+})
+
+const selectedForecastInsight = computed(() => {
+  if (!forecastInsights.value.length) return null
+  const index = Math.min(selectedForecastIndex.value, forecastInsights.value.length - 1)
+  return forecastInsights.value[index]
 })
 
 const loadSymbols = async () => {
@@ -691,19 +1169,33 @@ const setTheme = (value) => {
 }
 
 const loadProphecy = async () => {
+  if (form.mode === 'backtest' && !form.asOfDate) {
+    error.value = '请选择回测日期'
+    return
+  }
   loading.value = true
   report.value = null
+  selectedForecastIndex.value = 0
   error.value = ''
   startLoadingSteps()
   try {
-    const res = await generateStockProphecy({
+    const payload = {
       symbol: form.symbol,
       horizon: form.horizon,
       days: form.days,
-      provider: 'eastmoney',
-      includeEvents: form.includeEvents,
-      useLlm: form.useLlm
-    })
+      provider: 'eastmoney'
+    }
+    const res = form.mode === 'backtest'
+      ? await backtestStockProphecy({
+          ...payload,
+          asOfDate: form.asOfDate,
+          useLlm: form.useBacktestLlm
+        })
+      : await generateStockProphecy({
+          ...payload,
+          includeEvents: form.includeEvents,
+          useLlm: form.useLlm
+        })
     report.value = res.data
   } catch (err) {
     error.value = err.message || '推演失败'
@@ -732,6 +1224,59 @@ const signedClass = (value) => {
   if (value == null) return ''
   return Number(value) >= 0 ? 'positive' : 'negative'
 }
+
+const clampScore = (value) => Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
+
+const scoreTone = (value) => {
+  const score = Number(value) || 0
+  if (score >= 72) return 'tone-bull'
+  if (score >= 58) return 'tone-neutral'
+  return 'tone-bear'
+}
+
+const buildRadarGeometry = (items) => {
+  const center = 120
+  const radius = 78
+  const labelRadius = 103
+  const angles = [-90, 0, 90, 180]
+  const polar = (angle, distance) => {
+    const radians = angle * Math.PI / 180
+    return {
+      x: Number((center + Math.cos(radians) * distance).toFixed(2)),
+      y: Number((center + Math.sin(radians) * distance).toFixed(2))
+    }
+  }
+  const axes = items.map((item, index) => {
+    const edge = polar(angles[index], radius)
+    const label = polar(angles[index], labelRadius)
+    return {
+      key: item.key,
+      shortName: item.shortName,
+      x: edge.x,
+      y: edge.y,
+      labelX: label.x,
+      labelY: label.y + 4
+    }
+  })
+  const grid = [0.33, 0.66, 1].map((scale) => angles
+    .map((angle) => {
+      const point = polar(angle, radius * scale)
+      return `${point.x},${point.y}`
+    })
+    .join(' '))
+  const points = items.map((item, index) => {
+    const point = polar(angles[index], radius * clampScore(item.score) / 100)
+    return { key: item.key, ...point }
+  })
+  return {
+    axes,
+    grid,
+    points,
+    polygon: points.map((point) => `${point.x},${point.y}`).join(' ')
+  }
+}
+
+const formatPct = (value) => `${Number(value || 0).toFixed(2)}%`
 
 const directionLabel = (value) => {
   const map = {
@@ -1004,6 +1549,44 @@ onBeforeUnmount(() => {
 .theme-toggle button.active {
   color: var(--accent-ink);
   background: var(--accent);
+}
+
+.mode-switch {
+  width: max-content;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 38%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-solid) 72%, transparent);
+}
+
+.mode-switch.compact {
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.mode-switch button {
+  height: 34px;
+  min-width: 88px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.mode-switch.compact button {
+  min-width: 0;
+}
+
+.mode-switch button.active {
+  color: var(--accent-ink);
+  background: var(--accent-2);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent-2) 28%, transparent);
 }
 
 .entry-hero,
@@ -1345,6 +1928,103 @@ h1 {
 
 .loading-instrument {
   min-height: 360px;
+}
+
+.live-kline-loader {
+  display: grid;
+  gap: 12px;
+}
+
+.loader-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.loader-head span {
+  color: var(--muted);
+  font: 850 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.loader-head strong {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.loader-chart {
+  position: relative;
+  height: 210px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background:
+    linear-gradient(0deg, var(--chart-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--chart-grid) 1px, transparent 1px),
+    color-mix(in srgb, var(--panel-solid) 84%, transparent);
+  background-size: 100% 42px, 42px 100%, auto;
+}
+
+.loader-chart::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 28%;
+  background: var(--forecast);
+  border-left: 1px dashed color-mix(in srgb, var(--accent-2) 65%, transparent);
+}
+
+.loader-chart::after {
+  content: '';
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 50%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 62%, transparent), color-mix(in srgb, var(--accent-2) 46%, transparent), transparent);
+  transform: translateY(-50%);
+  opacity: 0.42;
+}
+
+.loader-candle {
+  position: absolute;
+  left: var(--x);
+  bottom: var(--b);
+  width: 9px;
+  height: var(--h);
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 -22px 0 -3px var(--accent), 0 22px 0 -3px var(--accent), 0 0 18px color-mix(in srgb, var(--accent) 26%, transparent);
+  opacity: 0;
+  transform: translateY(22px) scaleY(0.25);
+  transform-origin: bottom center;
+  animation: candleReplay 2.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  animation-delay: var(--d);
+}
+
+.loader-candle.risk {
+  background: var(--risk);
+  box-shadow: 0 -22px 0 -3px var(--risk), 0 22px 0 -3px var(--risk);
+}
+
+.loader-candle.prophecy {
+  width: 10px;
+  background: var(--accent-2);
+  box-shadow: 0 -26px 0 -3px var(--accent-2), 0 24px 0 -3px var(--accent-2), 0 0 22px color-mix(in srgb, var(--accent-2) 34%, transparent);
+}
+
+.scan-beam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 72px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 18%, transparent), transparent);
+  filter: blur(1px);
+  animation: scanBeam 2.9s linear infinite;
 }
 
 .step-indicator {
@@ -1745,6 +2425,17 @@ h1 {
   min-width: 0;
 }
 
+.chart-analysis-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 310px);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.chart-main-column {
+  min-width: 0;
+}
+
 .kline-chart {
   width: 100%;
   height: auto;
@@ -1799,48 +2490,158 @@ h1 {
 }
 
 .up,
-.up-fill,
-.forecast-up,
-.forecast-up-fill {
+.up-fill {
   stroke: var(--accent);
 }
 
-.up-fill,
-.forecast-up-fill {
+.up-fill {
   fill: var(--accent);
 }
 
 .down,
-.down-fill,
-.forecast-down,
-.forecast-down-fill {
+.down-fill {
   stroke: var(--risk);
 }
 
-.down-fill,
-.forecast-down-fill {
+.down-fill {
   fill: var(--risk);
 }
 
 .forecast-band {
   fill: var(--forecast);
+  opacity: 0;
+  animation: prophecyZoneReveal 620ms ease forwards;
+  animation-delay: 1.55s;
 }
 
 .forecast-divider {
   stroke: color-mix(in srgb, var(--accent-2) 86%, transparent);
   stroke-width: 1.4;
   stroke-dasharray: 5 5;
+  opacity: 0;
+  animation: prophecyZoneReveal 620ms ease forwards;
+  animation-delay: 1.55s;
 }
 
-.forecast-up,
-.forecast-down {
+.forecast-label {
+  opacity: 0;
+  animation: prophecyZoneReveal 620ms ease forwards;
+  animation-delay: 1.55s;
+}
+
+.candles line,
+.candles rect {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: candleReveal 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: var(--d);
+}
+
+.prophecy-candle {
+  color: var(--risk);
+  cursor: pointer;
+  outline: none;
+}
+
+.prophecy-candle.is-up {
+  color: var(--accent);
+}
+
+.prophecy-candle.is-down {
+  color: var(--risk);
+}
+
+.prophecy-candle.active .forecast-wick,
+.prophecy-candle.active .forecast-body,
+.prophecy-candle:focus-visible .forecast-wick,
+.prophecy-candle:focus-visible .forecast-body {
+  filter: drop-shadow(0 0 13px color-mix(in srgb, var(--accent-2) 62%, transparent));
+}
+
+.forecast-wick,
+.forecast-body,
+.wick-flash {
+  opacity: 0;
+  transform-box: fill-box;
+  vector-effect: non-scaling-stroke;
+}
+
+.forecast-wick {
+  stroke: currentColor;
   stroke-width: 2;
+  stroke-linecap: round;
 }
 
-.forecast-up-fill,
-.forecast-down-fill {
+.forecast-body {
+  fill: currentColor;
+  stroke: currentColor;
   stroke-width: 1;
+}
+
+.actual-candles line,
+.actual-candles rect {
+  stroke: color-mix(in srgb, var(--accent-2) 92%, var(--text));
+  stroke-width: 2.2;
   opacity: 0.9;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent-2) 28%, transparent));
+}
+
+.actual-candles rect {
+  fill: color-mix(in srgb, var(--accent-2) 18%, transparent);
+  stroke-dasharray: 3 2;
+}
+
+.upper-wick {
+  transform-origin: center bottom;
+}
+
+.lower-wick {
+  transform-origin: center top;
+}
+
+.upper-first .upper-wick {
+  animation: prophecyUpperProbe 1120ms cubic-bezier(0.12, 0.82, 0.24, 1) forwards;
+  animation-delay: var(--d);
+}
+
+.upper-first .forecast-body {
+  animation: prophecyBodySettle 1040ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: calc(var(--d) + 0.52s);
+}
+
+.upper-first .lower-wick {
+  animation: prophecyLowerAfter 820ms ease-out forwards;
+  animation-delay: calc(var(--d) + 0.88s);
+}
+
+.lower-first .lower-wick {
+  animation: prophecyLowerProbe 1120ms cubic-bezier(0.12, 0.82, 0.24, 1) forwards;
+  animation-delay: var(--d);
+}
+
+.lower-first .forecast-body {
+  animation: prophecyBodySettle 1040ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: calc(var(--d) + 0.52s);
+}
+
+.lower-first .upper-wick {
+  animation: prophecyUpperAfter 820ms ease-out forwards;
+  animation-delay: calc(var(--d) + 0.88s);
+}
+
+.wick-flash {
+  fill: var(--accent-2);
+  stroke: color-mix(in srgb, var(--accent-2) 72%, white);
+  stroke-width: 1.2;
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-2) 52%, transparent));
+}
+
+.upper-first .upper-flash,
+.lower-first .lower-flash {
+  animation: wickPulse 860ms ease-out forwards;
+  animation-delay: calc(var(--d) + 0.24s);
 }
 
 .ma-line,
@@ -1911,6 +2712,295 @@ h1 {
 
 .prophecy-dot {
   box-shadow: 0 0 12px color-mix(in srgb, var(--accent-2) 42%, transparent);
+}
+
+.actual-dot {
+  background: color-mix(in srgb, var(--accent-2) 74%, transparent);
+  border: 1px solid var(--accent-2);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-2) 32%, transparent);
+}
+
+.backtest-compare-panel {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.24fr) minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 42%, transparent);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 10%, transparent), transparent 44%),
+    color-mix(in srgb, var(--panel-solid) 88%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent-2) 80%, transparent);
+}
+
+.compare-verdict {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  min-height: 92px;
+}
+
+.compare-verdict span,
+.compare-verdict small,
+.compare-metrics span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.compare-verdict strong {
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1.05;
+}
+
+.compare-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.compare-metrics div {
+  display: grid;
+  align-content: space-between;
+  gap: 7px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft);
+}
+
+.compare-metrics strong {
+  color: var(--text);
+  font: 850 15px/1.15 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-word;
+}
+
+.forecast-insight {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 42%, transparent);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 12%, transparent), transparent 42%),
+    color-mix(in srgb, var(--panel-solid) 88%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent-2) 88%, transparent);
+}
+
+.insight-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.insight-head span {
+  color: var(--accent-2);
+  font: 850 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.insight-head strong {
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.forecast-insight p {
+  max-width: 96ch;
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.insight-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.insight-metrics div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft);
+}
+
+.insight-metrics span,
+.insight-notes span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.insight-metrics strong {
+  color: var(--text);
+  font: 850 17px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.insight-notes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.insight-notes span {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--soft) 82%, transparent);
+  line-height: 1.55;
+}
+
+.forecast-day-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.forecast-day-tabs button {
+  width: 38px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--soft);
+  font: 850 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  cursor: pointer;
+}
+
+.forecast-day-tabs button.active,
+.forecast-day-tabs button:hover {
+  border-color: color-mix(in srgb, var(--accent-2) 74%, transparent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent-2) 18%, transparent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent-2) 18%, transparent);
+}
+
+.credibility-radar-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, auto) 1fr;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 12%, transparent), transparent 48%),
+    color-mix(in srgb, var(--panel-solid) 88%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent-2) 78%, transparent);
+}
+
+.radar-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.radar-head div {
+  display: grid;
+  gap: 4px;
+}
+
+.radar-head span,
+.radar-head b,
+.radar-legend-list span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.radar-head strong {
+  color: var(--text);
+  font: 950 42px/0.95 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.radar-head b {
+  color: var(--accent-2);
+  text-align: right;
+}
+
+.credibility-radar {
+  width: min(100%, 250px);
+  aspect-ratio: 1;
+  justify-self: center;
+}
+
+.radar-grid-shape {
+  fill: none;
+  stroke: color-mix(in srgb, var(--muted) 28%, transparent);
+  stroke-width: 1;
+}
+
+.radar-axis {
+  stroke: color-mix(in srgb, var(--muted) 24%, transparent);
+  stroke-width: 1;
+}
+
+.radar-score-shape {
+  fill: color-mix(in srgb, var(--accent) 22%, transparent);
+  stroke: color-mix(in srgb, var(--accent) 86%, transparent);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 22%, transparent));
+}
+
+.radar-point {
+  fill: var(--accent-2);
+  stroke: color-mix(in srgb, var(--panel-solid) 92%, black);
+  stroke-width: 1.4;
+}
+
+.radar-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.radar-center-score {
+  fill: var(--text);
+  font: 950 24px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.radar-center-label {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 820;
+}
+
+.radar-legend-list {
+  display: grid;
+  gap: 9px;
+}
+
+.radar-legend-list div {
+  display: grid;
+  grid-template-columns: 44px 34px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--soft) 82%, transparent);
+}
+
+.radar-legend-list strong {
+  color: var(--text);
+  font: 900 15px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.radar-legend-list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .scenario-strip {
@@ -2271,6 +3361,159 @@ b.negative {
   to { transform: rotate(360deg); }
 }
 
+@keyframes candleReplay {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scaleY(0.25);
+  }
+  16% {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+  72% {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-8px) scaleY(0.92);
+  }
+}
+
+@keyframes scanBeam {
+  from { transform: translateX(-90px); }
+  to { transform: translateX(620px); }
+}
+
+@keyframes candleReveal {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scaleY(0.35);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+@keyframes prophecyReveal {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scaleY(0.15);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  48% {
+    opacity: 1;
+    transform: translateY(-3px) scaleY(1.08);
+    filter: drop-shadow(0 0 12px color-mix(in srgb, var(--accent-2) 46%, transparent));
+  }
+  to {
+    opacity: 0.95;
+    transform: translateY(0) scaleY(1);
+    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent-2) 34%, transparent));
+  }
+}
+
+@keyframes prophecyUpperProbe {
+  from {
+    opacity: 0;
+    transform: translateY(9px) scaleY(0.08);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  62% {
+    opacity: 1;
+    transform: translateY(-4px) scaleY(1.08);
+    filter: drop-shadow(0 0 14px color-mix(in srgb, var(--accent-2) 50%, transparent));
+  }
+  to {
+    opacity: 0.96;
+    transform: translateY(0) scaleY(1);
+    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent-2) 34%, transparent));
+  }
+}
+
+@keyframes prophecyLowerProbe {
+  from {
+    opacity: 0;
+    transform: translateY(-9px) scaleY(0.08);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  62% {
+    opacity: 1;
+    transform: translateY(4px) scaleY(1.08);
+    filter: drop-shadow(0 0 14px color-mix(in srgb, var(--accent-2) 50%, transparent));
+  }
+  to {
+    opacity: 0.96;
+    transform: translateY(0) scaleY(1);
+    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent-2) 34%, transparent));
+  }
+}
+
+@keyframes prophecyUpperAfter {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scaleY(0.08);
+  }
+  to {
+    opacity: 0.9;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+@keyframes prophecyLowerAfter {
+  from {
+    opacity: 0;
+    transform: translateY(-5px) scaleY(0.08);
+  }
+  to {
+    opacity: 0.9;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+@keyframes prophecyBodySettle {
+  from {
+    opacity: 0;
+    transform: translateY(var(--body-shift)) scaleY(0.18);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  54% {
+    opacity: 1;
+    transform: translateY(calc(var(--body-shift) * -0.18)) scaleY(1.12);
+    filter: drop-shadow(0 0 13px color-mix(in srgb, currentColor 36%, transparent));
+  }
+  to {
+    opacity: 0.94;
+    transform: translateY(0) scaleY(1);
+    filter: drop-shadow(0 0 8px color-mix(in srgb, currentColor 28%, transparent));
+  }
+}
+
+@keyframes wickPulse {
+  from {
+    opacity: 0;
+    transform: scale(0.34);
+  }
+  42% {
+    opacity: 0.95;
+    transform: scale(1.25);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.15);
+  }
+}
+
+@keyframes prophecyZoneReveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .scanning {
   animation: pulseScan 1.8s ease-in-out infinite;
 }
@@ -2299,6 +3542,20 @@ b.negative {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.001ms !important;
+  }
+
+	  .loader-candle,
+	  .candles line,
+	  .candles rect,
+	  .forecast-candles line,
+	  .forecast-candles rect,
+	  .forecast-body,
+	  .forecast-wick,
+	  .forecast-band,
+	  .forecast-divider,
+	  .forecast-label {
+	    opacity: 1 !important;
+	    transform: none !important;
   }
 }
 
@@ -2363,6 +3620,20 @@ b.negative {
 
   .forecast-panel {
     min-height: 0;
+  }
+
+  .chart-analysis-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .credibility-radar-panel {
+    grid-template-columns: minmax(210px, 0.42fr) minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    align-items: center;
+  }
+
+  .radar-head {
+    grid-column: 1 / -1;
   }
 }
 
@@ -2444,9 +3715,23 @@ b.negative {
   }
 
   .forecast-stats,
+  .insight-metrics,
+  .insight-notes,
+  .backtest-compare-panel,
+  .compare-metrics,
   .metric-grid,
   .agent-row {
     grid-template-columns: 1fr;
+  }
+
+  .credibility-radar-panel,
+  .radar-legend-list div {
+    grid-template-columns: 1fr;
+  }
+
+  .insight-head {
+    align-items: start;
+    flex-direction: column;
   }
 
   .kline-chart {

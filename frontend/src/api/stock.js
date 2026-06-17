@@ -15,3 +15,11 @@ export function generateStockProphecy(data) {
     data
   })
 }
+
+export function backtestStockProphecy(data) {
+  return request({
+    url: '/api/stock/prophecy/backtest',
+    method: 'post',
+    data
+  })
+}

@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from ..config import Config
 from ..utils.llm_client import LLMClient
@@ -29,6 +30,16 @@ class ProphecyRequest:
     provider: str = "eastmoney"
     include_events: bool = True
     use_llm: bool = True
+
+
+@dataclass(frozen=True)
+class BacktestRequest:
+    symbol: str
+    as_of_date: str
+    horizon: int = 5
+    days: int = 180
+    provider: str = "eastmoney"
+    use_llm: bool = False
 
 
 def generate_stock_seed_report(
@@ -149,6 +160,234 @@ def run_prophecy(request: ProphecyRequest) -> dict:
     }
     set_cached_prophecy(cache_key, result)
     return result
+
+
+def run_backtest(request: BacktestRequest) -> dict:
+    started_at = time.perf_counter()
+    symbol = normalize_symbol(request.symbol)
+    horizon = max(1, min(int(request.horizon or 5), 20))
+    lookback_days = max(60, min(int(request.days or 180), 500))
+    as_of_date = _parse_backtest_date(request.as_of_date)
+    request_payload = {
+        "mode": "backtest",
+        "symbol": symbol,
+        "asOfDate": as_of_date.isoformat(),
+        "horizon": horizon,
+        "days": lookback_days,
+        "provider": request.provider,
+        "useLlm": bool(request.use_llm),
+    }
+    cache_key = prophecy_cache_key(request_payload)
+    cached = get_cached_prophecy(cache_key)
+    if cached:
+        return cached
+    load_days = min(500, lookback_days + horizon + 80)
+    candles, actual_provider = load_candles_with_provider(symbol, days=load_days, provider=request.provider)
+    split_index = _find_backtest_split(candles, as_of_date)
+    history_start = max(0, split_index - lookback_days + 1)
+    history = candles[history_start : split_index + 1]
+    actual_future = candles[split_index + 1 : split_index + 1 + horizon]
+    if len(history) < 60:
+        raise ValueError("回测日期之前的K线样本不足，至少需要 60 个交易日")
+    if not actual_future:
+        raise ValueError("回测日期之后没有可对比的真实K线，请选择更早的日期")
+
+    prophecy = _build_prophecy_report(
+        symbol=symbol,
+        candles=history,
+        horizon=horizon,
+        provider=actual_provider,
+        events=None,
+        use_llm=bool(request.use_llm),
+        archive=False,
+        generated_at=datetime.now().isoformat(timespec="seconds"),
+        cache_key=None,
+    )
+    comparison = evaluate_backtest(prophecy["forecast"], history[-1], actual_future)
+    prophecy["mode"] = "backtest"
+    prophecy["backtest"] = {
+        "asOfDate": history[-1].date,
+        "requestedDate": as_of_date.isoformat(),
+        "actualCandles": [item.to_dict() for item in actual_future],
+        "comparison": comparison,
+        "elapsedMs": round((time.perf_counter() - started_at) * 1000),
+        "loadedDays": load_days,
+    }
+    prophecy["cache"] = {
+        "hit": False,
+        "key": cache_key,
+    }
+    set_cached_prophecy(cache_key, prophecy)
+    return prophecy
+
+
+def _build_prophecy_report(
+    *,
+    symbol: str,
+    candles: list[Candle],
+    horizon: int,
+    provider: str,
+    events: dict | None,
+    use_llm: bool,
+    archive: bool,
+    generated_at: str,
+    cache_key: str | None,
+) -> dict:
+    indicators = build_indicator_series(candles)
+    snapshot = latest_snapshot(candles, indicators)
+    analog = historical_analogs(candles, horizon)
+    baseline_scores = score_scenarios(snapshot, analog, events)
+    baseline_path = project_paths(candles[-1].close, snapshot, horizon, baseline_scores)
+    baseline_forecast = build_forecast_candles(candles[-1].close, snapshot, baseline_path, baseline_scores)
+    seed_report = generate_stock_seed_report(symbol, candles, indicators, horizon, events)
+    llm_prophecy = (
+        run_llm_prophecy(symbol, candles, indicators, snapshot, analog, events, baseline_scores, baseline_forecast, seed_report, horizon)
+        if use_llm
+        else {"enabled": False, "status": "disabled", "summary": "本次请求未启用 LLM 裁决。"}
+    )
+    llm_raw_response = llm_prophecy.pop("_rawResponse", None)
+    scores = apply_llm_to_scenarios(baseline_scores, llm_prophecy)
+    path = project_paths(candles[-1].close, snapshot, horizon, scores)
+    forecast = build_llm_forecast(candles[-1].close, snapshot, horizon, scores, llm_prophecy) or baseline_forecast
+    agents = agent_views(snapshot, analog, scores, events, llm_prophecy)
+
+    result = {
+        "symbol": symbol,
+        "name": get_symbol_name(symbol),
+        "market": "A股",
+        "period": "1d",
+        "provider": provider,
+        "generatedAt": generated_at,
+        "horizon": horizon,
+        "candles": [item.to_dict() for item in candles],
+        "indicators": indicators,
+        "snapshot": snapshot,
+        "analog": analog,
+        "events": events,
+        "scenarios": scores,
+        "paths": path,
+        "forecast": forecast,
+        "baselineForecast": baseline_forecast,
+        "llmProphecy": llm_prophecy,
+        "seedReport": seed_report,
+        "agents": agents,
+        "disclaimer": "本功能仅用于研究与策略复盘，不构成投资建议。",
+    }
+    if archive and cache_key:
+        try:
+            archive_id = archive_prophecy(
+                {
+                    "symbol": symbol,
+                    "horizon": horizon,
+                    "days": len(candles),
+                    "provider": provider,
+                    "includeEvents": bool(events),
+                    "useLlm": bool(use_llm),
+                },
+                result,
+                cache_key,
+                llm_raw_response=llm_raw_response,
+            )
+            result["archive"] = {
+                "id": archive_id,
+                "cacheKey": cache_key,
+                "status": "saved",
+            }
+        except Exception as exc:
+            result["archive"] = {
+                "id": None,
+                "cacheKey": cache_key,
+                "status": "failed",
+                "error": str(exc),
+            }
+    else:
+        result["archive"] = {
+            "id": None,
+            "cacheKey": cache_key,
+            "status": "skipped",
+        }
+    return result
+
+
+def _parse_backtest_date(value: str) -> date:
+    if not value:
+        raise ValueError("请选择回测日期")
+    try:
+        return datetime.strptime(value[:10], "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError("回测日期格式需要是 YYYY-MM-DD") from exc
+
+
+def _find_backtest_split(candles: list[Candle], as_of_date: date) -> int:
+    candidates = [
+        index
+        for index, item in enumerate(candles)
+        if datetime.strptime(item.date, "%Y-%m-%d").date() <= as_of_date
+    ]
+    if not candidates:
+        raise ValueError("回测日期早于可用行情数据")
+    split_index = candidates[-1]
+    if split_index >= len(candles) - 1:
+        raise ValueError("回测日期太接近最新交易日，无法对比未来真实走势")
+    return split_index
+
+
+def evaluate_backtest(forecast: dict, base_candle: Candle, actual_future: list[Candle]) -> dict:
+    forecast_candles = forecast.get("candles") or []
+    compare_count = min(len(forecast_candles), len(actual_future))
+    if compare_count <= 0:
+        raise ValueError("没有可比较的预言K线")
+    base_close = base_candle.close
+    predicted_last = forecast_candles[compare_count - 1]
+    actual_last = actual_future[compare_count - 1]
+    predicted_return = _return_pct(float(predicted_last["close"]), base_close)
+    actual_return = _return_pct(actual_last.close, base_close)
+    direction = forecast.get("direction") or predicted_last.get("direction") or "neutral"
+    direction_hit = (
+        actual_return > 0
+        if direction == "bull"
+        else actual_return < 0
+        if direction == "bear"
+        else abs(actual_return) <= max(1.5, (base_candle.high - base_candle.low) / max(base_close, 0.01) * 100)
+    )
+    rows = []
+    absolute_errors = []
+    for index in range(compare_count):
+        predicted = forecast_candles[index]
+        actual = actual_future[index]
+        predicted_close = float(predicted["close"])
+        error_pct = _return_pct(predicted_close, actual.close)
+        absolute_errors.append(abs(error_pct))
+        rows.append(
+            {
+                "day": index + 1,
+                "date": actual.date,
+                "predictedClose": round(predicted_close, 2),
+                "actualClose": round(actual.close, 2),
+                "errorPct": round(error_pct, 2),
+                "predictedReturnPct": round(_return_pct(predicted_close, base_close), 2),
+                "actualReturnPct": round(_return_pct(actual.close, base_close), 2),
+            }
+        )
+    avg_abs_error = sum(absolute_errors) / len(absolute_errors)
+    hit_score = max(0, min(100, 100 - avg_abs_error * 12 + (18 if direction_hit else -16)))
+    return {
+        "baseDate": base_candle.date,
+        "baseClose": round(base_close, 2),
+        "compareDays": compare_count,
+        "direction": direction,
+        "directionHit": bool(direction_hit),
+        "predictedReturnPct": round(predicted_return, 2),
+        "actualReturnPct": round(actual_return, 2),
+        "returnErrorPct": round(predicted_return - actual_return, 2),
+        "avgAbsErrorPct": round(avg_abs_error, 2),
+        "hitScore": round(hit_score),
+        "rows": rows,
+    }
+
+
+def _return_pct(value: float, base: float) -> float:
+    return (float(value) - float(base)) / max(abs(float(base)), 0.01) * 100
 
 
 def classify_trend(snapshot: dict) -> str:

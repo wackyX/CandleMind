@@ -9,7 +9,8 @@ from app.services.stock_archive import (
     read_prophecy_archive,
     set_cached_prophecy,
 )
-from app.services.stock_prophecy import build_llm_forecast
+from app.services.stock_market_data import Candle
+from app.services.stock_prophecy import build_llm_forecast, evaluate_backtest
 
 
 def test_prophecy_cache_key_is_stable():
@@ -73,3 +74,25 @@ def test_llm_forecast_candle_bounds_are_valid():
         assert candle["high"] >= max(candle["open"], candle["close"])
         assert candle["low"] <= min(candle["open"], candle["close"])
         assert candle["low"] > 0
+
+
+def test_backtest_evaluation_compares_forecast_with_actual_candles():
+    base = Candle(date="2026-05-01", open=99, high=101, low=98, close=100, volume=1000)
+    actual = [
+        Candle(date="2026-05-04", open=100, high=104, low=99, close=103, volume=1200),
+        Candle(date="2026-05-05", open=103, high=106, low=102, close=105, volume=1300),
+    ]
+    forecast = {
+        "direction": "bull",
+        "candles": [
+            {"day": 1, "open": 100, "high": 103, "low": 99, "close": 102},
+            {"day": 2, "open": 102, "high": 106, "low": 101, "close": 104},
+        ],
+    }
+
+    result = evaluate_backtest(forecast, base, actual)
+
+    assert result["directionHit"] is True
+    assert result["predictedReturnPct"] == 4.0
+    assert result["actualReturnPct"] == 5.0
+    assert result["rows"][1]["errorPct"] == -0.95
