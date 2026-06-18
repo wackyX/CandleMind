@@ -4,7 +4,7 @@
 
 # CandleMind
 
-An AI candlestick prophecy terminal for China A-shares
+AI candlestick prophecy terminal for China A-shares
 
 English | [中文文档](./README-ZH.md)
 
@@ -12,71 +12,129 @@ English | [中文文档](./README-ZH.md)
 
 ## Overview
 
-**CandleMind** is an open-source research workstation for China A-share daily candlesticks. Given a stock code, it pulls recent real K-line data, news and announcements, combines technical indicators, historical analogs and the user-provided LLM, then renders a single forecast candlestick path after the real chart.
+**CandleMind** is an open-source research workstation for China A-share daily candlesticks. Enter a stock code and it pulls real K-line data, recent news and announcements, technical indicators, historical analogs and an optional user-provided LLM to generate a single forecast candlestick path after the real chart.
 
-This project is for research, review and product prototyping only. It is not investment advice.
+It is built for research, review, product prototyping and open-source experimentation. It is **not investment advice**.
 
-## Features
+## What It Does
 
-- Query A-share daily K-line data, recent news and announcements by stock code
-- Calculate MA, RSI, ATR, BOLL, support/resistance and historical analogs
-- Use your own OpenAI-compatible LLM for direction judgment, reasoning and risk boundaries
-- Append one explicit forecast candlestick path after the real K-line chart
-- Show LLM judgment, agent summaries, event signal and Stock Seed Report
-- Prefer Eastmoney data, with Sina historical K-line and Eastmoney realtime fallback
-- Save local prophecy archives and reuse short-lived cached results for repeated requests
+- **A-share stock input**: enter a 6-digit A-share code such as `600519`
+- **Real daily K-line chart**: shows recent real candlesticks with stock name, code, exchange and cycle
+- **Forecast candlesticks**: appends one explicit prophecy path after the real K-line chart
+- **Candlestick animation**: forecast candles render step by step, including upper/lower wicks
+- **News and announcement events**: pulls recent Eastmoney news and announcements when enabled
+- **Technical analysis**: MA, RSI, ATR, BOLL, support/resistance and turnover mood
+- **Historical analogs**: compares current structure with similar historical patterns
+- **User-owned LLM**: supports OpenAI-compatible providers such as DeepSeek, OpenAI, Qwen, Ollama and LM Studio
+- **Explainability chain**: breaks down the prophecy into technical, analog, event, model and risk layers
+- **Credibility radar**: visualizes signal consistency across technicals, events, LLM and risk
+- **Single-date backtest**: choose a historical cut-off date and compare the forecast with actual future candles
+- **Batch backtest**: sample multiple historical cut-off dates and calculate hit rate and average error
+- **Data source health check**: checks market data, realtime data, event data and LLM configuration
+- **Data source record**: every report records actual provider, fallback status, latest candle date, event count and LLM status
+- **Local archive and cache**: saves local prophecy archives and reuses short-lived identical requests
+- **Dual UI themes**: light and dark terminal styles with red/gold/cold-gray market palette
 
-## Interaction Flow
+## Prophecy Modes
 
-1. Open the page and enter a stock code
-2. Click “Start prophecy”
-3. The loading view shows the current reasoning stage
-4. The full terminal is rendered after the request completes
+### Live Prophecy
 
-## Requirements
+Generates a forward-looking candlestick path from the latest available A-share daily K-line data.
 
-| Tool | Version |
-| --- | --- |
-| Node.js | 18+ |
-| Python | >=3.11, <3.13 |
-| uv | latest |
+Typical use:
 
-## Configuration
-
-Copy the example env file:
-
-```bash
-cp .env.example .env
+```json
+{
+  "symbol": "600519",
+  "horizon": 5,
+  "days": 180,
+  "includeEvents": true,
+  "useLlm": true
+}
 ```
 
-Example `.env`:
+### Single-Date Backtest
 
-```env
-LLM_API_KEY=your_api_key_here
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_MODEL_NAME=gpt-4o-mini
-LLM_SUPPORTS_JSON_MODE=true
+Uses only data available up to a selected historical date, generates the prophecy from that point, then compares it against actual future candles.
 
-ZEP_API_KEY=dummy
+The chart history is capped at the backtest date. Actual future candles are shown only in the prophecy comparison area.
 
-STOCK_PROPHECY_CACHE_TTL_SECONDS=600
-STOCK_PROPHECY_ARCHIVE_DIR=./data/prophecies
+### Batch Backtest
 
-FLASK_HOST=0.0.0.0
-FLASK_PORT=5001
-FLASK_DEBUG=True
+Samples multiple historical cut-off dates and reports:
+
+- direction hit rate
+- average hit score
+- average absolute error
+- average return error
+- per-sample predicted return vs actual return
+
+The UI also shows one recent reference backtest chart so users can inspect the K-line-level behavior.
+
+## Explainability
+
+Each prophecy report includes a structured `explanation` object and a frontend "Evidence Chain" panel.
+
+Explanation layers:
+
+- **Technical Structure**: MA alignment, RSI, support/resistance and price position
+- **Historical Analog**: similar-pattern sample size, up probability and forward return
+- **Event Driver**: recent news/announcement signal and event score
+- **Model Judgment**: LLM summary, reasons and confidence when enabled
+- **Risk Boundary**: ATR, support/resistance distance and invalidation triggers
+
+Each layer has a score, stance (`support`, `caution`, `oppose`) and concrete evidence points. The report also includes invalidation triggers for when the prophecy should be recalculated.
+
+## Data Sources
+
+CandleMind currently focuses only on the China A-share market.
+
+Market data flow:
+
+1. Eastmoney daily K-line is preferred
+2. If Eastmoney daily K-line fails, Sina historical K-line is used as fallback
+3. Eastmoney realtime data can be merged when available
+4. Demo data remains available for tests and offline UI work
+
+Event data:
+
+- Eastmoney news search
+- Eastmoney announcements
+- Local transparent keyword-based event scoring
+
+Health check endpoint:
+
+```http
+GET /api/config/data-sources/health?symbol=600519
 ```
 
-Notes:
+Report source record:
 
-- A real `LLM_API_KEY` is required for model-powered prophecy. Without it, CandleMind falls back to a rule baseline
-- `ZEP_API_KEY` is a legacy compatibility startup setting; CandleMind can use `dummy` for now
-- `.env` is ignored by git. Do not commit real secrets
-- Prophecy archives are stored under `data/prophecies` by default. `data/` is ignored by git
+```json
+{
+  "dataSources": {
+    "market": {
+      "requestedProvider": "eastmoney",
+      "actualProvider": "sina+eastmoney_realtime",
+      "fallbackUsed": true,
+      "latestCandleDate": "2026-06-18"
+    },
+    "events": {
+      "enabled": true,
+      "eventCount": 12
+    },
+    "llm": {
+      "enabled": true,
+      "status": "ok",
+      "model": "deepseek-chat"
+    }
+  }
+}
+```
 
 ## LLM Providers
 
-CandleMind does not require a specific vendor. Any OpenAI-compatible chat completions endpoint can be used.
+CandleMind does not require a specific vendor. Any OpenAI-compatible chat completions endpoint can be used. If no real LLM key is configured, CandleMind falls back to a deterministic rule baseline.
 
 DeepSeek:
 
@@ -123,18 +181,57 @@ LLM_MODEL_NAME=local-model
 LLM_SUPPORTS_JSON_MODE=false
 ```
 
-Check the current provider:
+Diagnostics:
 
 ```http
 GET /api/config/llm
 POST /api/config/check-llm
 ```
 
-The frontend entry screen also shows the current model and provides a model check button.
+## Requirements
 
-## Privacy
+| Tool | Version |
+| --- | --- |
+| Node.js | 18+ |
+| Python | >=3.11, <3.13 |
+| uv | latest |
 
-CandleMind is self-hosted. API keys are read from your local `.env` or deployment environment. Stock code, K-line data, indicators, news and announcements are sent only to the LLM provider that you configure. Prophecy archives are saved locally under `data/prophecies` by default. The project itself does not collect telemetry.
+## Configuration
+
+Copy the example env file:
+
+```bash
+cp .env.example .env
+```
+
+Example `.env`:
+
+```env
+LLM_API_KEY=your_api_key_here
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL_NAME=gpt-4o-mini
+LLM_SUPPORTS_JSON_MODE=true
+
+ZEP_API_KEY=dummy
+
+STOCK_PROPHECY_CACHE_TTL_SECONDS=600
+STOCK_PROPHECY_ARCHIVE_DIR=./data/prophecies
+
+FLASK_HOST=0.0.0.0
+FLASK_PORT=5001
+FLASK_DEBUG=True
+
+# Optional: use when frontend and backend are on different origins
+# VITE_API_BASE_URL=http://localhost:5001
+```
+
+Notes:
+
+- A real `LLM_API_KEY` is required for model-powered prophecy
+- `ZEP_API_KEY` is a legacy compatibility startup setting; CandleMind can use `dummy`
+- `.env` is ignored by git. Do not commit real secrets
+- Prophecy archives are stored under `data/prophecies` by default. `data/` is ignored by git
+- `VITE_API_BASE_URL` is optional. Leave it empty for Vite proxy/local same-origin development
 
 ## Install
 
@@ -169,22 +266,28 @@ npm run frontend
 
 ## API
 
-Stock prophecy endpoint:
+Live prophecy:
 
 ```http
 POST /api/stock/prophecy
 ```
 
-Example request:
+Single-date backtest:
 
-```json
-{
-  "symbol": "600519",
-  "horizon": 5,
-  "days": 180,
-  "includeEvents": true,
-  "useLlm": true
-}
+```http
+POST /api/stock/prophecy/backtest
+```
+
+Batch backtest:
+
+```http
+POST /api/stock/prophecy/backtest/batch
+```
+
+Data source health:
+
+```http
+GET /api/config/data-sources/health?symbol=600519
 ```
 
 Recent local prophecy archives:
@@ -194,12 +297,62 @@ GET /api/stock/prophecies?limit=20
 GET /api/stock/prophecies/{archiveId}
 ```
 
-Each generated response includes `archive.id` and `cache.hit`. A repeated identical request within `STOCK_PROPHECY_CACHE_TTL_SECONDS` returns from cache.
+Example live request:
+
+```json
+{
+  "symbol": "600519",
+  "horizon": 5,
+  "days": 180,
+  "provider": "eastmoney",
+  "includeEvents": true,
+  "useLlm": true
+}
+```
+
+Example single-date backtest request:
+
+```json
+{
+  "symbol": "600519",
+  "asOfDate": "2026-05-18",
+  "horizon": 5,
+  "days": 180,
+  "provider": "eastmoney",
+  "useLlm": false
+}
+```
+
+Example batch backtest request:
+
+```json
+{
+  "symbol": "600519",
+  "horizon": 5,
+  "days": 180,
+  "provider": "eastmoney",
+  "samples": 12,
+  "step": 5,
+  "useLlm": false
+}
+```
+
+Each generated response includes `cache.hit`. Live prophecy responses also include local `archive.id` when archive saving succeeds.
+
+## Privacy
+
+CandleMind is self-hosted. API keys are read from your local `.env` or deployment environment. Stock code, K-line data, indicators, news and announcements are sent only to the LLM provider that you configure. Prophecy archives are saved locally under `data/prophecies` by default. The project itself does not collect telemetry.
 
 ## Test
 
 ```bash
 cd backend && python -m pytest tests
+```
+
+Frontend build:
+
+```bash
+cd frontend && npm run build
 ```
 
 ## Disclaimer
