@@ -9,7 +9,14 @@ from flask import jsonify, request
 from . import stock_bp
 from ..services.stock_archive import list_prophecy_archives, read_prophecy_archive
 from ..services.stock_market_data import search_symbols
-from ..services.stock_prophecy import BacktestRequest, ProphecyRequest, run_backtest, run_prophecy
+from ..services.stock_prophecy import (
+    BacktestRequest,
+    BatchBacktestRequest,
+    ProphecyRequest,
+    run_backtest,
+    run_batch_backtest,
+    run_prophecy,
+)
 from ..utils.logger import get_logger
 
 logger = get_logger("mirofish.api.stock")
@@ -79,6 +86,43 @@ def prophecy_backtest():
         return jsonify({"success": True, "data": result})
     except Exception as exc:
         logger.error(f"A股预言回测失败: {exc}")
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                }
+            ),
+            500,
+        )
+
+
+@stock_bp.route("/prophecy/backtest/batch", methods=["POST"])
+def prophecy_batch_backtest():
+    try:
+        data = request.get_json() or {}
+        symbol = data.get("symbol", "600519")
+        horizon = int(data.get("horizon", 5))
+        days = int(data.get("days", 180))
+        provider = data.get("provider", "eastmoney")
+        samples = int(data.get("samples", 12))
+        step = int(data.get("step", 5))
+        use_llm = bool(data.get("useLlm", False))
+        result = run_batch_backtest(
+            BatchBacktestRequest(
+                symbol=symbol,
+                horizon=horizon,
+                days=days,
+                provider=provider,
+                samples=samples,
+                step=step,
+                use_llm=use_llm,
+            )
+        )
+        return jsonify({"success": True, "data": result})
+    except Exception as exc:
+        logger.error(f"A股批量回测失败: {exc}")
         return (
             jsonify(
                 {

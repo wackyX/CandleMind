@@ -10,7 +10,13 @@ from app.services.stock_archive import (
     set_cached_prophecy,
 )
 from app.services.stock_market_data import Candle
-from app.services.stock_prophecy import build_llm_forecast, evaluate_backtest
+from app.services.stock_prophecy import (
+    build_data_sources_meta,
+    build_llm_forecast,
+    build_prophecy_explanation,
+    evaluate_backtest,
+    summarize_batch_backtest,
+)
 
 
 def test_prophecy_cache_key_is_stable():
@@ -96,3 +102,69 @@ def test_backtest_evaluation_compares_forecast_with_actual_candles():
     assert result["predictedReturnPct"] == 4.0
     assert result["actualReturnPct"] == 5.0
     assert result["rows"][1]["errorPct"] == -0.95
+
+
+def test_batch_backtest_summary_aggregates_runs():
+    runs = [
+        {"directionHit": True, "hitScore": 82, "avgAbsErrorPct": 1.2, "returnErrorPct": -0.5},
+        {"directionHit": False, "hitScore": 48, "avgAbsErrorPct": 3.0, "returnErrorPct": 2.0},
+        {"directionHit": True, "hitScore": 76, "avgAbsErrorPct": 1.8, "returnErrorPct": 0.7},
+    ]
+
+    result = summarize_batch_backtest(runs)
+
+    assert result["sampleCount"] == 3
+    assert result["directionHits"] == 2
+    assert result["directionHitRate"] == 66.67
+    assert result["bestRun"]["hitScore"] == 82
+    assert result["worstRun"]["hitScore"] == 48
+
+
+def test_data_source_meta_records_provider_without_leaking_key(monkeypatch):
+    monkeypatch.setattr(Config, "LLM_API_KEY", "sk-test-secret")
+    candles = [
+        Candle(date="2026-05-01", open=1, high=2, low=1, close=2, volume=100),
+        Candle(date="2026-05-02", open=2, high=3, low=2, close=3, volume=110),
+    ]
+
+    result = build_data_sources_meta(
+        provider="sina",
+        requested_provider="eastmoney",
+        candles=candles,
+        events={"source": "eastmoney", "events": [{"title": "公告"}], "meta": {"latestNewsAt": "2026-05-02T09:00"}},
+        use_llm=True,
+    )
+
+    assert result["market"]["fallbackUsed"] is True
+    assert result["market"]["latestCandleDate"] == "2026-05-02"
+    assert result["events"]["eventCount"] == 1
+    assert result["llm"]["status"] == "ok"
+    assert "sk-test-secret" not in str(result)
+
+
+def test_prophecy_explanation_has_structured_layers():
+    snapshot = {
+        "close": 100,
+        "ma5": 102,
+        "ma20": 98,
+        "ma60": 95,
+        "rsi14": 56,
+        "atr14": 2,
+        "support": 96,
+        "resistance": 106,
+    }
+    analog = {"upProbability": 62, "avgForwardReturn": 1.8, "sampleSize": 24}
+    events = {
+        "signal": {"score": 2, "summary": "近期事件略偏多。"},
+        "events": [{"title": "回购公告"}],
+    }
+    scenarios = [{"key": "bull", "probability": 64}, {"key": "neutral", "probability": 22}, {"key": "bear", "probability": 14}]
+    forecast = {"direction": "bull", "probability": 64}
+    llm = {"status": "ok", "probability": 66, "summary": "模型支持偏多。", "reasons": ["均线支撑", "事件偏多"]}
+
+    result = build_prophecy_explanation(snapshot, analog, events, scenarios, forecast, llm)
+
+    assert result["direction"] == "bull"
+    assert result["layers"]
+    assert {item["key"] for item in result["layers"]} == {"technical", "analog", "events", "model", "risk"}
+    assert result["score"] > 0

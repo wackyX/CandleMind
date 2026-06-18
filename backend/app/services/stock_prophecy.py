@@ -42,6 +42,17 @@ class BacktestRequest:
     use_llm: bool = False
 
 
+@dataclass(frozen=True)
+class BatchBacktestRequest:
+    symbol: str
+    horizon: int = 5
+    days: int = 180
+    provider: str = "eastmoney"
+    samples: int = 12
+    step: int = 5
+    use_llm: bool = False
+
+
 def generate_stock_seed_report(
     symbol: str,
     candles: list[Candle],
@@ -83,6 +94,7 @@ def generate_stock_seed_report(
 
 
 def run_prophecy(request: ProphecyRequest) -> dict:
+    started_at = time.perf_counter()
     symbol = normalize_symbol(request.symbol)
     horizon = max(1, min(int(request.horizon or 5), 20))
     request_payload = {
@@ -117,6 +129,7 @@ def run_prophecy(request: ProphecyRequest) -> dict:
     path = project_paths(candles[-1].close, snapshot, horizon, scores)
     forecast = build_llm_forecast(candles[-1].close, snapshot, horizon, scores, llm_prophecy) or baseline_forecast
     agents = agent_views(snapshot, analog, scores, events, llm_prophecy)
+    explanation = build_prophecy_explanation(snapshot, analog, events, scores, forecast, llm_prophecy)
 
     result = {
         "symbol": symbol,
@@ -124,6 +137,14 @@ def run_prophecy(request: ProphecyRequest) -> dict:
         "market": "A股",
         "period": "1d",
         "provider": actual_provider,
+        "dataSources": build_data_sources_meta(
+            provider=actual_provider,
+            requested_provider=request.provider,
+            candles=candles,
+            events=events,
+            use_llm=bool(request.use_llm),
+            elapsed_ms=round((time.perf_counter() - started_at) * 1000),
+        ),
         "generatedAt": datetime.now().isoformat(timespec="seconds"),
         "horizon": horizon,
         "candles": [item.to_dict() for item in candles],
@@ -134,6 +155,7 @@ def run_prophecy(request: ProphecyRequest) -> dict:
         "scenarios": scores,
         "paths": path,
         "forecast": forecast,
+        "explanation": explanation,
         "baselineForecast": baseline_forecast,
         "llmProphecy": llm_prophecy,
         "seedReport": seed_report,
@@ -213,12 +235,135 @@ def run_backtest(request: BacktestRequest) -> dict:
         "elapsedMs": round((time.perf_counter() - started_at) * 1000),
         "loadedDays": load_days,
     }
+    prophecy["dataSources"] = build_data_sources_meta(
+        provider=actual_provider,
+        requested_provider=request.provider,
+        candles=history,
+        events=None,
+        use_llm=bool(request.use_llm),
+        elapsed_ms=prophecy["backtest"]["elapsedMs"],
+        actual_candles=actual_future,
+    )
     prophecy["cache"] = {
         "hit": False,
         "key": cache_key,
     }
     set_cached_prophecy(cache_key, prophecy)
     return prophecy
+
+
+def run_batch_backtest(request: BatchBacktestRequest) -> dict:
+    started_at = time.perf_counter()
+    symbol = normalize_symbol(request.symbol)
+    horizon = max(1, min(int(request.horizon or 5), 20))
+    lookback_days = max(60, min(int(request.days or 180), 500))
+    samples = max(3, min(int(request.samples or 12), 30))
+    step = max(1, min(int(request.step or 5), 20))
+    use_llm = bool(request.use_llm)
+    request_payload = {
+        "mode": "batch_backtest",
+        "symbol": symbol,
+        "horizon": horizon,
+        "days": lookback_days,
+        "provider": request.provider,
+        "samples": samples,
+        "step": step,
+        "useLlm": use_llm,
+    }
+    cache_key = prophecy_cache_key(request_payload)
+    cached = get_cached_prophecy(cache_key)
+    if cached:
+        return cached
+
+    load_days = min(500, lookback_days + horizon + samples * step + 80)
+    candles, actual_provider = load_candles_with_provider(symbol, days=load_days, provider=request.provider)
+    latest_split = len(candles) - horizon - 1
+    first_split = lookback_days - 1
+    if latest_split < first_split:
+        raise ValueError("可用K线不足，无法执行批量回测")
+    candidate_indices = list(range(latest_split, first_split - 1, -step))[:samples]
+    if len(candidate_indices) < 3:
+        raise ValueError("批量回测至少需要 3 个可比较切点")
+
+    runs = []
+    reference_report = None
+    for split_index in reversed(candidate_indices):
+        history = candles[split_index - lookback_days + 1 : split_index + 1]
+        actual_future = candles[split_index + 1 : split_index + 1 + horizon]
+        if len(history) < 60 or not actual_future:
+            continue
+        report = _build_prophecy_report(
+            symbol=symbol,
+            candles=history,
+            horizon=horizon,
+            provider=actual_provider,
+            events=None,
+            use_llm=use_llm,
+            archive=False,
+            generated_at=datetime.now().isoformat(timespec="seconds"),
+            cache_key=None,
+        )
+        comparison = evaluate_backtest(report["forecast"], history[-1], actual_future)
+        run = {
+            "asOfDate": history[-1].date,
+            "actualEndDate": actual_future[min(horizon, len(actual_future)) - 1].date,
+            "direction": comparison["direction"],
+            "directionHit": comparison["directionHit"],
+            "hitScore": comparison["hitScore"],
+            "predictedReturnPct": comparison["predictedReturnPct"],
+            "actualReturnPct": comparison["actualReturnPct"],
+            "returnErrorPct": comparison["returnErrorPct"],
+            "avgAbsErrorPct": comparison["avgAbsErrorPct"],
+            "compareDays": comparison["compareDays"],
+        }
+        runs.append(run)
+        reference_report = report
+        reference_report["mode"] = "backtest"
+        reference_report["backtest"] = {
+            "asOfDate": history[-1].date,
+            "requestedDate": history[-1].date,
+            "actualCandles": [item.to_dict() for item in actual_future],
+            "comparison": comparison,
+            "elapsedMs": 0,
+            "loadedDays": load_days,
+        }
+    if not runs or reference_report is None:
+        raise ValueError("批量回测没有生成有效样本")
+
+    summary = summarize_batch_backtest(runs)
+    result = {
+        "mode": "batch_backtest",
+        "symbol": symbol,
+        "name": get_symbol_name(symbol),
+        "market": "A股",
+        "period": "1d",
+        "provider": actual_provider,
+        "generatedAt": datetime.now().isoformat(timespec="seconds"),
+        "horizon": horizon,
+        "batchBacktest": {
+            "samplesRequested": samples,
+            "samples": len(runs),
+            "step": step,
+            "lookbackDays": lookback_days,
+            "summary": summary,
+            "runs": runs,
+            "elapsedMs": round((time.perf_counter() - started_at) * 1000),
+            "loadedDays": load_days,
+        },
+        "dataSources": build_data_sources_meta(
+            provider=actual_provider,
+            requested_provider=request.provider,
+            candles=candles,
+            events=None,
+            use_llm=use_llm,
+            elapsed_ms=round((time.perf_counter() - started_at) * 1000),
+        ),
+        "referenceReport": reference_report,
+        "disclaimer": "本功能仅用于研究与策略复盘，不构成投资建议。",
+        "cache": {"hit": False, "key": cache_key},
+    }
+    set_cached_prophecy(cache_key, result)
+    return result
 
 
 def _build_prophecy_report(
@@ -250,6 +395,7 @@ def _build_prophecy_report(
     path = project_paths(candles[-1].close, snapshot, horizon, scores)
     forecast = build_llm_forecast(candles[-1].close, snapshot, horizon, scores, llm_prophecy) or baseline_forecast
     agents = agent_views(snapshot, analog, scores, events, llm_prophecy)
+    explanation = build_prophecy_explanation(snapshot, analog, events, scores, forecast, llm_prophecy)
 
     result = {
         "symbol": symbol,
@@ -257,6 +403,13 @@ def _build_prophecy_report(
         "market": "A股",
         "period": "1d",
         "provider": provider,
+        "dataSources": build_data_sources_meta(
+            provider=provider,
+            requested_provider=provider,
+            candles=candles,
+            events=events,
+            use_llm=bool(use_llm),
+        ),
         "generatedAt": generated_at,
         "horizon": horizon,
         "candles": [item.to_dict() for item in candles],
@@ -267,6 +420,7 @@ def _build_prophecy_report(
         "scenarios": scores,
         "paths": path,
         "forecast": forecast,
+        "explanation": explanation,
         "baselineForecast": baseline_forecast,
         "llmProphecy": llm_prophecy,
         "seedReport": seed_report,
@@ -384,6 +538,220 @@ def evaluate_backtest(forecast: dict, base_candle: Candle, actual_future: list[C
         "hitScore": round(hit_score),
         "rows": rows,
     }
+
+
+def summarize_batch_backtest(runs: list[dict]) -> dict:
+    if not runs:
+        return {
+            "directionHitRate": 0,
+            "avgHitScore": 0,
+            "avgAbsErrorPct": 0,
+            "avgReturnErrorPct": 0,
+            "sampleCount": 0,
+        }
+    sample_count = len(runs)
+    direction_hits = sum(1 for item in runs if item.get("directionHit"))
+    avg_hit_score = sum(float(item.get("hitScore") or 0) for item in runs) / sample_count
+    avg_abs_error = sum(float(item.get("avgAbsErrorPct") or 0) for item in runs) / sample_count
+    avg_return_error = sum(abs(float(item.get("returnErrorPct") or 0)) for item in runs) / sample_count
+    return {
+        "sampleCount": sample_count,
+        "directionHits": direction_hits,
+        "directionHitRate": round(direction_hits / sample_count * 100, 2),
+        "avgHitScore": round(avg_hit_score, 2),
+        "avgAbsErrorPct": round(avg_abs_error, 2),
+        "avgReturnErrorPct": round(avg_return_error, 2),
+        "bestRun": max(runs, key=lambda item: item.get("hitScore") or 0),
+        "worstRun": min(runs, key=lambda item: item.get("hitScore") or 0),
+    }
+
+
+def build_data_sources_meta(
+    *,
+    provider: str,
+    requested_provider: str,
+    candles: list[Candle],
+    events: dict | None,
+    use_llm: bool,
+    elapsed_ms: int | None = None,
+    actual_candles: list[Candle] | None = None,
+) -> dict:
+    latest_candle = candles[-1].date if candles else None
+    earliest_candle = candles[0].date if candles else None
+    fallback_used = bool(requested_provider and provider and requested_provider != provider)
+    event_items = (events or {}).get("events") or []
+    event_meta = (events or {}).get("meta") or {}
+    llm_key = (Config.LLM_API_KEY or "").strip()
+    llm_configured = bool(llm_key) and llm_key.lower() not in {"dummy", "your_api_key", "your_api_key_here"}
+    llm_status = "disabled" if not use_llm else "ok" if llm_configured else "missing_config"
+    sources = {
+        "market": {
+            "requestedProvider": requested_provider,
+            "actualProvider": provider,
+            "status": "warning" if fallback_used else "ok",
+            "fallbackUsed": fallback_used,
+            "candleCount": len(candles),
+            "earliestCandleDate": earliest_candle,
+            "latestCandleDate": latest_candle,
+        },
+        "events": {
+            "enabled": events is not None,
+            "source": (events or {}).get("source"),
+            "status": "disabled" if events is None else "ok" if event_items else "warning",
+            "eventCount": len(event_items),
+            "latestNewsAt": event_meta.get("latestNewsAt"),
+            "latestAnnouncementAt": event_meta.get("latestAnnouncementAt"),
+        },
+        "llm": {
+            "enabled": bool(use_llm),
+            "status": llm_status,
+            "model": Config.LLM_MODEL_NAME,
+            "baseUrl": Config.LLM_BASE_URL,
+            "supportsJsonMode": Config.LLM_SUPPORTS_JSON_MODE,
+        },
+    }
+    if actual_candles is not None:
+        sources["backtestActual"] = {
+            "status": "ok" if actual_candles else "warning",
+            "candleCount": len(actual_candles),
+            "earliestCandleDate": actual_candles[0].date if actual_candles else None,
+            "latestCandleDate": actual_candles[-1].date if actual_candles else None,
+        }
+    if elapsed_ms is not None:
+        sources["elapsedMs"] = elapsed_ms
+    return sources
+
+
+def build_prophecy_explanation(
+    snapshot: dict,
+    analog: dict,
+    events: dict | None,
+    scenarios: list[dict],
+    forecast: dict,
+    llm_prophecy: dict,
+) -> dict:
+    direction = forecast.get("direction") or max(scenarios, key=lambda item: item["probability"])["key"]
+    close = float(snapshot.get("close") or 0)
+    ma5 = float(snapshot.get("ma5") or close)
+    ma20 = float(snapshot.get("ma20") or close)
+    ma60 = float(snapshot.get("ma60") or close)
+    rsi = float(snapshot.get("rsi14") or 50)
+    atr = float(snapshot.get("atr14") or 0)
+    support = float(snapshot.get("support") or close)
+    resistance = float(snapshot.get("resistance") or close)
+    event_signal = (events or {}).get("signal") or {}
+    event_score = float(event_signal.get("score") or 0)
+    event_count = len((events or {}).get("events") or [])
+    analog_up = analog.get("upProbability")
+    analog_return = analog.get("avgForwardReturn")
+    llm_status = llm_prophecy.get("status")
+
+    technical_score = 50
+    technical_points = []
+    if close >= ma20:
+        technical_score += 12 if direction == "bull" else 4
+        technical_points.append(f"收盘价 {close:.2f} 位于 MA20 {ma20:.2f} 上方，趋势承接偏强。")
+    else:
+        technical_score += 12 if direction == "bear" else -4
+        technical_points.append(f"收盘价 {close:.2f} 位于 MA20 {ma20:.2f} 下方，上方均线仍有压制。")
+    if ma5 >= ma20 >= ma60:
+        technical_score += 10
+        technical_points.append("MA5、MA20、MA60 呈多头顺序，结构对上行更友好。")
+    elif ma5 <= ma20 <= ma60:
+        technical_score -= 10 if direction == "bull" else -2
+        technical_points.append("均线顺序偏空，反弹需要先修复短中期均线。")
+    if rsi > 70:
+        technical_score -= 8
+        technical_points.append(f"RSI14 为 {rsi:.2f}，短线过热会压低继续上攻的性价比。")
+    elif rsi < 30:
+        technical_score -= 6 if direction == "bear" else 4
+        technical_points.append(f"RSI14 为 {rsi:.2f}，超卖状态下容易出现反抽。")
+    else:
+        technical_score += 4
+        technical_points.append(f"RSI14 为 {rsi:.2f}，没有进入极端过热或超卖区。")
+
+    analog_score = 50
+    analog_points = []
+    if analog_up is None:
+        analog_score = 45
+        analog_points.append("相似形态样本不足，历史类比权重被降低。")
+    else:
+        analog_score += (float(analog_up) - 50) * (0.55 if direction == "bull" else -0.45 if direction == "bear" else -0.25)
+        analog_points.append(f"历史相似形态上涨概率 {analog_up}%，平均前瞻收益 {analog_return if analog_return is not None else '--'}%。")
+    analog_points.append(f"本次相似形态样本量 {analog.get('sampleSize', 0)}，样本越多，该层解释越稳定。")
+
+    event_layer_score = 50 + (event_score * (2.1 if direction == "bull" else -2.1 if direction == "bear" else 0.6))
+    event_points = []
+    if event_count:
+        event_points.append(event_signal.get("summary") or f"纳入 {event_count} 条近期新闻公告。")
+        event_points.append(f"事件综合分 {event_score:.2f}，用于修正纯技术面方向。")
+    else:
+        event_layer_score = 45
+        event_points.append("未纳入近期事件，事件面不对方向做强修正。")
+
+    model_score = 50
+    model_points = []
+    if llm_status == "ok":
+        model_score = 48 + float(llm_prophecy.get("probability") or forecast.get("probability") or 50) * 0.52
+        model_points.append(llm_prophecy.get("summary") or "模型已参与方向裁决。")
+        model_points.extend((llm_prophecy.get("reasons") or [])[:2])
+    elif llm_status == "disabled":
+        model_score = 42
+        model_points.append("本次未启用 LLM，模型层不参与加权，方向由规则基线承接。")
+    else:
+        model_score = 38
+        model_points.append(llm_prophecy.get("summary") or "LLM 不可用，模型层回退到规则基线。")
+
+    atr_pct = atr / max(close, 0.01) * 100
+    boundary_distance = min(abs(close - support), abs(resistance - close)) / max(close, 0.01) * 100
+    risk_score = 76 - atr_pct * 3.2 + min(8, boundary_distance)
+    risk_points = [
+        f"支撑 {support:.2f}，压力 {resistance:.2f}，最近边界距离约 {boundary_distance:.2f}%。",
+        f"ATR14 占收盘价约 {atr_pct:.2f}%，波动越大，预言置信越保守。",
+    ]
+    if llm_prophecy.get("invalidations"):
+        risk_points.append(f"首要失效条件：{llm_prophecy['invalidations'][0]}")
+
+    layers = [
+        _explanation_layer("technical", "技术结构", technical_score, _stance_from_score(technical_score), technical_points),
+        _explanation_layer("analog", "历史相似", analog_score, _stance_from_score(analog_score), analog_points),
+        _explanation_layer("events", "事件驱动", event_layer_score, _stance_from_score(event_layer_score), event_points),
+        _explanation_layer("model", "模型裁决", model_score, _stance_from_score(model_score), model_points),
+        _explanation_layer("risk", "风险边界", risk_score, "caution" if risk_score < 58 else "support", risk_points),
+    ]
+    support_count = sum(1 for layer in layers if layer["stance"] == "support")
+    caution_count = sum(1 for layer in layers if layer["stance"] == "caution")
+    conflict_count = sum(1 for layer in layers if layer["stance"] == "oppose")
+    final_score = round(sum(layer["score"] for layer in layers) / len(layers))
+    return {
+        "direction": direction,
+        "score": final_score,
+        "verdict": f"{direction_name(direction)}，解释强度 {final_score}/100",
+        "summary": f"{support_count} 层支持、{caution_count} 层谨慎、{conflict_count} 层反对；方向由技术结构、历史相似、事件、模型和风险边界共同裁决。",
+        "layers": layers,
+        "keyInvalidations": llm_prophecy.get("invalidations") or [
+            f"跌破支撑 {support:.2f} 或突破压力 {resistance:.2f} 后，需要重新推演。",
+        ],
+    }
+
+
+def _explanation_layer(key: str, name: str, score: float, stance: str, points: list[str]) -> dict:
+    return {
+        "key": key,
+        "name": name,
+        "score": round(max(0, min(100, float(score)))),
+        "stance": stance,
+        "stanceLabel": {"support": "支持", "caution": "谨慎", "oppose": "反对"}.get(stance, "谨慎"),
+        "points": [item for item in points if item][:4],
+    }
+
+
+def _stance_from_score(score: float) -> str:
+    if score >= 62:
+        return "support"
+    if score <= 44:
+        return "oppose"
+    return "caution"
 
 
 def _return_pct(value: float, base: float) -> float:

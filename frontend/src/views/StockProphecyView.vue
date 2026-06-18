@@ -20,10 +20,11 @@
 	          <div class="entry-copy">
 	            <h1>输入代码<br />点燃预言</h1>
 	            <p>烛机拉取真实 A 股日 K、近期事件与模型裁决，在最后一根真实 K 线后生成未来路径。</p>
-	            <div class="mode-switch" aria-label="推演模式">
-	              <button type="button" :class="{ active: form.mode === 'live' }" @click="form.mode = 'live'">实时预言</button>
-	              <button type="button" :class="{ active: form.mode === 'backtest' }" @click="form.mode = 'backtest'">历史回测</button>
-	            </div>
+		            <div class="mode-switch" aria-label="推演模式">
+		              <button type="button" :class="{ active: form.mode === 'live' }" @click="form.mode = 'live'">实时预言</button>
+		              <button type="button" :class="{ active: form.mode === 'backtest' }" @click="form.mode = 'backtest'">单点回测</button>
+		              <button type="button" :class="{ active: form.mode === 'batch' }" @click="form.mode = 'batch'">批量回测</button>
+		            </div>
 	            <label class="entry-pill" for="entry-stock-symbol">
               <input
                 id="entry-stock-symbol"
@@ -35,7 +36,7 @@
                 autofocus
                 aria-label="股票代码"
               />
-	              <button type="submit">{{ form.mode === 'backtest' ? '开始回测' : '开始预言' }}</button>
+		              <button type="submit">{{ form.mode === 'live' ? '开始预言' : form.mode === 'batch' ? '批量验证' : '开始回测' }}</button>
               <datalist id="entry-symbol-list">
                 <option v-for="item in symbols" :key="item.symbol" :value="item.symbol">
                   {{ item.name }}
@@ -61,6 +62,28 @@
                 <template v-if="llmCheck.latencyMs">({{ llmCheck.latencyMs }}ms)</template>
               </p>
             </div>
+            <div v-if="dataHealth" class="data-health-card">
+              <div class="data-health-head">
+                <div>
+                  <span>数据源健康</span>
+                  <strong :class="healthTone(dataHealth.status)">{{ healthStatusText(dataHealth.status) }}</strong>
+                </div>
+                <button type="button" @click="refreshDataHealth" :disabled="checkingDataHealth">
+                  {{ checkingDataHealth ? '检测中' : '刷新' }}
+                </button>
+              </div>
+              <div class="health-check-grid">
+                <span
+                  v-for="item in dataHealth.checks"
+                  :key="item.key"
+                  :class="['health-check-pill', healthTone(item.status)]"
+                  :title="`${item.message}${item.latencyMs != null ? ` / ${item.latencyMs}ms` : ''}`"
+                >
+                  {{ item.name }}
+                </span>
+              </div>
+              <small>{{ dataHealthSummary }}</small>
+            </div>
             <div class="entry-options">
               <label class="field" for="entry-stock-horizon">
                 <span>预测窗口</span>
@@ -80,10 +103,28 @@
                   <option :value="320">320 日</option>
 	                </select>
 	              </label>
-	              <label v-if="form.mode === 'backtest'" class="field" for="entry-backtest-date">
-	                <span>回测日期</span>
-	                <input id="entry-backtest-date" v-model="form.asOfDate" type="date" />
-	              </label>
+		              <label v-if="form.mode === 'backtest'" class="field" for="entry-backtest-date">
+		                <span>回测日期</span>
+		                <input id="entry-backtest-date" v-model="form.asOfDate" type="date" />
+		              </label>
+		              <label v-if="form.mode === 'batch'" class="field" for="entry-batch-samples">
+		                <span>样本数</span>
+		                <select id="entry-batch-samples" v-model.number="form.batchSamples">
+		                  <option :value="6">6 次</option>
+		                  <option :value="12">12 次</option>
+		                  <option :value="18">18 次</option>
+		                  <option :value="24">24 次</option>
+		                </select>
+		              </label>
+		              <label v-if="form.mode === 'batch'" class="field" for="entry-batch-step">
+		                <span>切点间隔</span>
+		                <select id="entry-batch-step" v-model.number="form.batchStep">
+		                  <option :value="3">每 3 日</option>
+		                  <option :value="5">每 5 日</option>
+		                  <option :value="10">每 10 日</option>
+		                  <option :value="20">每 20 日</option>
+		                </select>
+		              </label>
 	            </div>
 	            <div class="entry-switches">
 	              <label v-if="form.mode === 'live'" class="toggle-field entry-toggle">
@@ -225,10 +266,11 @@
       <aside class="side-console">
 	        <section class="surface control-panel">
 	          <div class="panel-title">A股日K推演</div>
-	          <div class="mode-switch compact" aria-label="推演模式">
-	            <button type="button" :class="{ active: form.mode === 'live' }" @click="form.mode = 'live'">实时</button>
-	            <button type="button" :class="{ active: form.mode === 'backtest' }" @click="form.mode = 'backtest'">回测</button>
-	          </div>
+		          <div class="mode-switch compact" aria-label="推演模式">
+		            <button type="button" :class="{ active: form.mode === 'live' }" @click="form.mode = 'live'">实时</button>
+		            <button type="button" :class="{ active: form.mode === 'backtest' }" @click="form.mode = 'backtest'">回测</button>
+		            <button type="button" :class="{ active: form.mode === 'batch' }" @click="form.mode = 'batch'">批量</button>
+		          </div>
 	          <label class="field" for="stock-symbol">
             <span>股票代码</span>
             <input id="stock-symbol" v-model="form.symbol" list="symbol-list" maxlength="6" inputmode="numeric" />
@@ -256,10 +298,28 @@
               <option :value="320">320 日</option>
 	            </select>
 	          </label>
-	          <label v-if="form.mode === 'backtest'" class="field" for="stock-backtest-date">
-	            <span>回测日期</span>
-	            <input id="stock-backtest-date" v-model="form.asOfDate" type="date" />
-	          </label>
+		          <label v-if="form.mode === 'backtest'" class="field" for="stock-backtest-date">
+		            <span>回测日期</span>
+		            <input id="stock-backtest-date" v-model="form.asOfDate" type="date" />
+		          </label>
+		          <label v-if="form.mode === 'batch'" class="field" for="stock-batch-samples">
+		            <span>样本数</span>
+		            <select id="stock-batch-samples" v-model.number="form.batchSamples">
+		              <option :value="6">6 次</option>
+		              <option :value="12">12 次</option>
+		              <option :value="18">18 次</option>
+		              <option :value="24">24 次</option>
+		            </select>
+		          </label>
+		          <label v-if="form.mode === 'batch'" class="field" for="stock-batch-step">
+		            <span>切点间隔</span>
+		            <select id="stock-batch-step" v-model.number="form.batchStep">
+		              <option :value="3">每 3 日</option>
+		              <option :value="5">每 5 日</option>
+		              <option :value="10">每 10 日</option>
+		              <option :value="20">每 20 日</option>
+		            </select>
+		          </label>
 	          <label v-if="form.mode === 'live'" class="toggle-field">
 	            <input v-model="form.includeEvents" type="checkbox" />
 	            <span>拉取近期新闻和公告事件</span>
@@ -280,8 +340,18 @@
             </button>
             <small v-if="llmCheck" :class="llmCheck.ok ? 'ok' : 'failed'">{{ llmCheck.message }}</small>
           </div>
-	          <button class="primary-button" @click="loadProphecy" :disabled="loading">
-	            {{ loading ? '正在生成' : form.mode === 'backtest' ? '运行回测' : '生成预言' }}
+          <div class="side-data-health">
+            <div>
+              <span>数据源</span>
+              <strong :class="healthTone(dataHealth?.status)">{{ dataHealth ? healthStatusText(dataHealth.status) : '未检测' }}</strong>
+            </div>
+            <button type="button" @click="refreshDataHealth" :disabled="checkingDataHealth">
+              {{ checkingDataHealth ? '检测中' : '健康检查' }}
+            </button>
+            <small>{{ dataHealthSummary || '检查东方财富行情、新闻公告和 LLM 配置。' }}</small>
+          </div>
+		          <button class="primary-button" @click="loadProphecy" :disabled="loading">
+	            {{ loading ? '正在生成' : form.mode === 'batch' ? '批量回测' : form.mode === 'backtest' ? '运行回测' : '生成预言' }}
 	          </button>
           <p class="micro-copy">K线优先来自东方财富，必要时用新浪历史行情和东方财富实时行情兜底。结果仅用于研究和复盘。</p>
         </section>
@@ -323,13 +393,21 @@
         <template v-if="report">
           <section class="surface chart-shell">
             <div class="stage-head">
-              <div class="asset-block">
-                <div class="asset-line">
-                  <span>{{ report.market }} {{ report.period }}</span>
-                  <strong>{{ report.symbol }}</strong>
-                </div>
-	                <h1>{{ report.name }} 烛机预言</h1>
-	                <p>{{ report.mode === 'backtest' ? `以 ${report.backtest?.asOfDate} 为历史切点，生成当时可见数据下的预言，并对比之后真实走势。` : `未来 ${report.horizon} 个交易日，基于真实日K、近期新闻公告和相似形态生成单一路径。` }}</p>
+	              <div class="asset-block">
+	                <div class="asset-line">
+	                  <span>{{ exchangeLabel(report.symbol) }}</span>
+	                  <span>{{ report.period?.toUpperCase?.() || report.period }}</span>
+	                </div>
+		                <h1>{{ report.name }} <span>{{ report.symbol }}</span></h1>
+		                <p>
+		                  {{
+		                    report.mode === 'batch_backtest'
+		                      ? `批量抽取 ${batchBacktest?.samples || 0} 个历史切点，统计方向命中率、误差和样本稳定性。图中展示最近一个切点的预言对照。`
+		                      : report.mode === 'backtest'
+		                        ? `以 ${report.backtest?.asOfDate} 为历史切点，生成当时可见数据下的预言，并对比之后真实走势。`
+		                        : `未来 ${report.horizon} 个交易日，基于真实日K、近期新闻公告和相似形态生成单一路径。`
+		                  }}
+		                </p>
 	              </div>
               <div v-if="forecastSummary" :class="['forecast-panel', directionTone(report.forecast.direction)]">
                 <span>主预言</span>
@@ -554,7 +632,7 @@
               </aside>
 	            </div>
 
-	            <div v-if="backtestSummary" class="backtest-compare-panel">
+		            <div v-if="backtestSummary" class="backtest-compare-panel">
 	              <div class="compare-verdict">
 	                <span>历史回测</span>
 	                <strong :class="backtestSummary.directionHit ? 'positive' : 'negative'">
@@ -579,10 +657,89 @@
 	                  <span>平均偏差</span>
 	                  <strong>{{ backtestSummary.avgAbsErrorPct }}%</strong>
 	                </div>
-	              </div>
-	            </div>
+		              </div>
+		            </div>
 
-	            <div v-if="selectedForecastInsight" class="forecast-insight">
+		            <div v-if="batchBacktest" class="batch-backtest-panel">
+		              <div class="batch-head">
+		                <div>
+		                  <span>批量历史回测</span>
+		                  <strong>{{ batchBacktest.summary.directionHitRate }}% 方向命中率</strong>
+		                </div>
+		                <b>{{ batchBacktest.samples }} / {{ batchBacktest.samplesRequested }} 个切点</b>
+		              </div>
+		              <div class="compare-metrics">
+		                <div>
+		                  <span>平均命中分</span>
+		                  <strong>{{ batchBacktest.summary.avgHitScore }}</strong>
+		                </div>
+		                <div>
+		                  <span>平均绝对误差</span>
+		                  <strong>{{ batchBacktest.summary.avgAbsErrorPct }}%</strong>
+		                </div>
+		                <div>
+		                  <span>平均收益误差</span>
+		                  <strong>{{ batchBacktest.summary.avgReturnErrorPct }}%</strong>
+		                </div>
+		                <div>
+		                  <span>切点间隔</span>
+		                  <strong>{{ batchBacktest.step }} 日</strong>
+		                </div>
+		              </div>
+		              <div class="batch-run-table">
+		                <div class="batch-row head">
+		                  <span>切点</span>
+		                  <span>方向</span>
+		                  <span>预言</span>
+		                  <span>真实</span>
+		                  <span>分数</span>
+		                </div>
+		                <div
+		                  v-for="item in batchBacktest.runs"
+		                  :key="`batch-${item.asOfDate}`"
+		                  class="batch-row"
+		                >
+		                  <span>{{ item.asOfDate }}</span>
+		                  <span :class="item.directionHit ? 'positive' : 'negative'">{{ item.directionHit ? '命中' : '偏离' }}</span>
+		                  <span :class="signedClass(item.predictedReturnPct)">{{ item.predictedReturnPct }}%</span>
+		                  <span :class="signedClass(item.actualReturnPct)">{{ item.actualReturnPct }}%</span>
+		                  <span>{{ item.hitScore }}</span>
+		                </div>
+		              </div>
+		            </div>
+
+		            <div v-if="sourceSnapshot" class="source-record-panel">
+		              <div class="source-record-head">
+		                <span>本次数据源记录</span>
+		                <strong :class="healthTone(sourceSnapshot.market?.status)">
+		                  {{ providerLabel(sourceSnapshot.market?.actualProvider || report.provider) }}
+		                </strong>
+		              </div>
+		              <div class="source-record-grid">
+		                <div>
+		                  <span>行情日期</span>
+		                  <strong>{{ sourceSnapshot.market?.latestCandleDate || '--' }}</strong>
+		                  <small>{{ sourceSnapshot.market?.fallbackUsed ? '已使用兜底行情源' : '主行情源可用' }}</small>
+		                </div>
+		                <div>
+		                  <span>事件源</span>
+		                  <strong>{{ sourceSnapshot.events?.enabled ? `${sourceSnapshot.events.eventCount} 条` : '未启用' }}</strong>
+		                  <small>{{ sourceSnapshot.events?.latestNewsAt || sourceSnapshot.events?.latestAnnouncementAt || '无最新事件时间' }}</small>
+		                </div>
+		                <div>
+		                  <span>模型源</span>
+		                  <strong>{{ sourceSnapshot.llm?.enabled ? sourceSnapshot.llm.model : '未启用' }}</strong>
+		                  <small>{{ sourceSnapshot.llm?.status || '--' }}</small>
+		                </div>
+		                <div v-if="sourceSnapshot.backtestActual">
+		                  <span>真实对照</span>
+		                  <strong>{{ sourceSnapshot.backtestActual.candleCount }} 根</strong>
+		                  <small>{{ sourceSnapshot.backtestActual.earliestCandleDate }} - {{ sourceSnapshot.backtestActual.latestCandleDate }}</small>
+		                </div>
+		              </div>
+		            </div>
+
+		            <div v-if="selectedForecastInsight" class="forecast-insight">
               <div class="insight-head">
                 <span>第 {{ selectedForecastInsight.day }} 个交易日</span>
                 <strong>{{ selectedForecastInsight.title }}</strong>
@@ -622,10 +779,41 @@
                   D{{ item.day }}
                 </button>
               </div>
-            </div>
-          </section>
+	            </div>
+	          </section>
 
-          <section class="scenario-strip">
+	          <section v-if="prophecyExplanation" class="surface explanation-panel">
+	            <div class="explanation-head">
+	              <div>
+	                <span>推演证据链</span>
+	                <strong>{{ prophecyExplanation.verdict }}</strong>
+	              </div>
+	              <b>{{ prophecyExplanation.score }}</b>
+	            </div>
+	            <p>{{ prophecyExplanation.summary }}</p>
+	            <div class="explanation-layers">
+	              <article
+	                v-for="layer in prophecyExplanation.layers"
+	                :key="`explain-${layer.key}`"
+	                :class="['explanation-layer', explanationTone(layer.stance)]"
+	              >
+	                <div class="layer-top">
+	                  <span>{{ layer.name }}</span>
+	                  <strong>{{ layer.score }}</strong>
+	                </div>
+	                <b>{{ layer.stanceLabel }}</b>
+	                <ul>
+	                  <li v-for="point in layer.points" :key="`point-${layer.key}-${point}`">{{ point }}</li>
+	                </ul>
+	              </article>
+	            </div>
+	            <div v-if="prophecyExplanation.keyInvalidations?.length" class="explanation-invalidations">
+	              <span>重新推演触发器</span>
+	              <p v-for="item in prophecyExplanation.keyInvalidations" :key="`invalidate-${item}`">{{ item }}</p>
+	            </div>
+	          </section>
+
+	          <section class="scenario-strip">
             <article
               v-for="scenario in report.scenarios"
               :key="scenario.key"
@@ -763,8 +951,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { checkLlmConfig, getLlmConfig } from '../api/config'
-import { backtestStockProphecy, generateStockProphecy, searchStockSymbols } from '../api/stock'
+import { checkLlmConfig, getDataSourceHealth, getLlmConfig } from '../api/config'
+import { backtestStockProphecy, batchBacktestStockProphecy, generateStockProphecy, searchStockSymbols } from '../api/stock'
 
 const router = useRouter()
 const loading = ref(false)
@@ -777,6 +965,8 @@ const theme = ref(localStorage.getItem('candlemind-theme') || 'dark')
 const llmConfig = ref(null)
 const llmCheck = ref(null)
 const checkingLlm = ref(false)
+const dataHealth = ref(null)
+const checkingDataHealth = ref(false)
 const selectedForecastIndex = ref(0)
 const loadingSteps = [
   '连接东方财富并拉取近期日K',
@@ -815,29 +1005,37 @@ const form = reactive({
   horizon: 5,
   days: 180,
   asOfDate: defaultBacktestDate(),
+  batchSamples: 12,
+  batchStep: 5,
   includeEvents: true,
   useLlm: true,
   useBacktestLlm: false
 })
 
 const chart = computed(() => {
-	  if (!report.value) {
-	    return { width: 980, height: 440, padding: { left: 56, right: 62, top: 26, bottom: 36 }, priceTicks: [], candles: [], forecastCandles: [], actualCandles: [], forecastBand: null }
-	  }
+  if (!report.value) {
+    return { width: 980, height: 440, padding: { left: 56, right: 62, top: 26, bottom: 36 }, priceTicks: [], candles: [], forecastCandles: [], actualCandles: [], forecastBand: null }
+  }
   const width = 980
   const height = 440
   const padding = { left: 56, right: 62, top: 26, bottom: 36 }
-	  const visibleCandles = report.value.candles.slice(-88)
-	  const forecastSource = report.value.forecast?.candles || []
-	  const actualSource = report.value.backtest?.actualCandles || []
-	  const projectedValues = forecastSource.flatMap((item) => [item.high, item.low, item.open, item.close])
-	  const actualValues = actualSource.flatMap((item) => [item.high, item.low, item.open, item.close])
-	  const allPrices = visibleCandles.flatMap((item) => [item.high, item.low]).concat(projectedValues, actualValues)
+  const cutoffDate = report.value.backtest?.asOfDate
+  const historySource = cutoffDate
+    ? report.value.candles.filter((item) => !item.date || item.date <= cutoffDate)
+    : report.value.candles
+  const visibleCandles = (historySource.length ? historySource : report.value.candles).slice(-88)
+  const forecastSource = report.value.forecast?.candles || []
+  const actualSource = (report.value.backtest?.actualCandles || [])
+    .filter((item) => !cutoffDate || !item.date || item.date > cutoffDate)
+  const pathSource = report.value.paths || forecastSource
+  const projectedValues = forecastSource.flatMap((item) => [item.high, item.low, item.open, item.close])
+  const actualValues = actualSource.flatMap((item) => [item.high, item.low, item.open, item.close])
+  const allPrices = visibleCandles.flatMap((item) => [item.high, item.low]).concat(projectedValues, actualValues)
   const minPrice = Math.min(...allPrices) * 0.985
   const maxPrice = Math.max(...allPrices) * 1.015
   const innerWidth = width - padding.left - padding.right
   const innerHeight = height - padding.top - padding.bottom
-	  const totalSlots = visibleCandles.length + Math.max(report.value.paths.length, actualSource.length) + 2
+  const totalSlots = visibleCandles.length + Math.max(pathSource.length, actualSource.length) + 2
   const xStep = innerWidth / totalSlots
   const candleWidth = Math.max(3, Math.min(9, xStep * 0.58))
   const y = (value) => padding.top + (maxPrice - value) / (maxPrice - minPrice) * innerHeight
@@ -854,8 +1052,7 @@ const chart = computed(() => {
     up: item.close >= item.open,
     animationIndex: index
   }))
-	  const forecastCandles = []
-  forecastSource.forEach((item, index) => {
+  const forecastCandles = forecastSource.map((item, index) => {
     const openY = y(item.open)
     const closeY = y(item.close)
     const highY = y(item.high)
@@ -865,7 +1062,7 @@ const chart = computed(() => {
     const upperWickHeight = Math.max(0, bodyTopY - highY)
     const lowerWickHeight = Math.max(0, lowY - bodyBottomY)
     const wickMode = upperWickHeight >= lowerWickHeight ? 'upper-first' : 'lower-first'
-    forecastCandles.push({
+    return {
       ...item,
       x: x(lastIndex + index + 1),
       width: candleWidth,
@@ -882,23 +1079,23 @@ const chart = computed(() => {
       bodyShift: wickMode === 'upper-first' ? -7 : 7,
       up: item.close >= item.open,
       animationIndex: index
-	  })
-	  const actualCandles = actualSource.map((item, index) => {
-	    const openY = y(item.open)
-	    const closeY = y(item.close)
-	    return {
-	      ...item,
-	      x: x(lastIndex + index + 1),
-	      width: Math.max(2, candleWidth * 0.54),
-	      openY,
-	      closeY,
-	      highY: y(item.high),
-	      lowY: y(item.low),
-	      bodyTopY: Math.min(openY, closeY),
-	      bodyHeight: Math.max(2, Math.abs(closeY - openY)),
-	      up: item.close >= item.open
-	    }
-	  })
+    }
+  })
+  const actualCandles = actualSource.map((item, index) => {
+    const openY = y(item.open)
+    const closeY = y(item.close)
+    return {
+      ...item,
+      x: x(lastIndex + index + 1),
+      width: Math.max(2, candleWidth * 0.54),
+      openY,
+      closeY,
+      highY: y(item.high),
+      lowY: y(item.low),
+      bodyTopY: Math.min(openY, closeY),
+      bodyHeight: Math.max(2, Math.abs(closeY - openY)),
+      up: item.close >= item.open
+    }
   })
   const visibleIndicators = report.value.indicators.slice(-88)
   const makeLine = (values, offset = 0) => values
@@ -914,9 +1111,9 @@ const chart = computed(() => {
     height,
     padding,
     priceTicks: ticks,
-	    candles,
-	    forecastCandles,
-	    actualCandles,
+    candles,
+    forecastCandles,
+    actualCandles,
     forecastBand: forecastCandles.length
       ? {
           x: forecastCandles[0].x - xStep / 2,
@@ -946,6 +1143,12 @@ const forecastSummary = computed(() => {
 })
 
 const backtestSummary = computed(() => report.value?.backtest?.comparison || null)
+
+const batchBacktest = computed(() => report.value?.batchBacktest || null)
+
+const sourceSnapshot = computed(() => report.value?.dataSources || null)
+
+const prophecyExplanation = computed(() => report.value?.explanation || null)
 
 const credibilityBreakdown = computed(() => {
   if (!report.value?.forecast || !report.value?.snapshot) return null
@@ -1128,6 +1331,15 @@ const selectedForecastInsight = computed(() => {
   return forecastInsights.value[index]
 })
 
+const dataHealthSummary = computed(() => {
+  if (!dataHealth.value) return ''
+  const failed = dataHealth.value.checks?.filter((item) => item.status === 'error') || []
+  const warnings = dataHealth.value.checks?.filter((item) => item.status === 'warning') || []
+  if (failed.length) return `${failed.map((item) => item.name).join('、')} 异常，建议稍后重试或切换网络。`
+  if (warnings.length) return `${warnings.map((item) => item.name).join('、')} 降级可用，推演会保守处理。`
+  return `全部数据源可用，最近检测 ${formatEventTime(dataHealth.value.checkedAt)}。`
+})
+
 const loadSymbols = async () => {
   const res = await searchStockSymbols()
   symbols.value = res.data
@@ -1163,6 +1375,29 @@ const checkCurrentLlm = async () => {
   }
 }
 
+const refreshDataHealth = async () => {
+  checkingDataHealth.value = true
+  try {
+    const res = await getDataSourceHealth(form.symbol || '600519')
+    dataHealth.value = res.data
+  } catch (err) {
+    dataHealth.value = {
+      status: 'error',
+      checkedAt: new Date().toISOString(),
+      checks: [
+        {
+          key: 'health_api',
+          name: '健康检查接口',
+          status: 'error',
+          message: err.message || '健康检查失败'
+        }
+      ]
+    }
+  } finally {
+    checkingDataHealth.value = false
+  }
+}
+
 const setTheme = (value) => {
   theme.value = value
   localStorage.setItem('candlemind-theme', value)
@@ -1179,6 +1414,7 @@ const loadProphecy = async () => {
   error.value = ''
   startLoadingSteps()
   try {
+    refreshDataHealth()
     const payload = {
       symbol: form.symbol,
       horizon: form.horizon,
@@ -1191,12 +1427,28 @@ const loadProphecy = async () => {
           asOfDate: form.asOfDate,
           useLlm: form.useBacktestLlm
         })
+      : form.mode === 'batch'
+        ? await batchBacktestStockProphecy({
+            ...payload,
+            samples: form.batchSamples,
+            step: form.batchStep,
+            useLlm: form.useBacktestLlm
+          })
       : await generateStockProphecy({
           ...payload,
           includeEvents: form.includeEvents,
           useLlm: form.useLlm
         })
-    report.value = res.data
+    report.value = res.data.mode === 'batch_backtest'
+      ? {
+          ...res.data.referenceReport,
+          generatedAt: res.data.generatedAt,
+          provider: res.data.provider,
+          dataSources: res.data.dataSources,
+          batchBacktest: res.data.batchBacktest,
+          mode: 'batch_backtest'
+        }
+      : res.data
   } catch (err) {
     error.value = err.message || '推演失败'
   } finally {
@@ -1223,6 +1475,24 @@ const stopLoadingSteps = () => {
 const signedClass = (value) => {
   if (value == null) return ''
   return Number(value) >= 0 ? 'positive' : 'negative'
+}
+
+const healthStatusText = (value) => {
+  const map = {
+    ok: '正常',
+    warning: '降级',
+    error: '异常'
+  }
+  return map[value] || '未知'
+}
+
+const healthTone = (value) => {
+  const map = {
+    ok: 'health-ok',
+    warning: 'health-warning',
+    error: 'health-error'
+  }
+  return map[value] || 'health-warning'
 }
 
 const clampScore = (value) => Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
@@ -1298,6 +1568,15 @@ const directionTone = (value) => {
 
 const scenarioTone = directionTone
 
+const explanationTone = (value) => {
+  const map = {
+    support: 'explain-support',
+    caution: 'explain-caution',
+    oppose: 'explain-oppose'
+  }
+  return map[value] || 'explain-caution'
+}
+
 const formatDateTime = (value) => new Date(value).toLocaleString('zh-CN', {
   month: '2-digit',
   day: '2-digit',
@@ -1336,6 +1615,14 @@ const providerLabel = (value) => {
   return map[value] || value || '--'
 }
 
+const exchangeLabel = (symbol = '') => {
+  const code = String(symbol || '')
+  if (code.startsWith('60') || code.startsWith('68')) return '上交所 SSE'
+  if (code.startsWith('00') || code.startsWith('30')) return '深交所 SZSE'
+  if (code.startsWith('83') || code.startsWith('87') || code.startsWith('92')) return '北交所 BSE'
+  return 'A股'
+}
+
 const llmStatusText = (value) => {
   const map = {
     ok: '已参与',
@@ -1366,6 +1653,7 @@ const llmProviderLabel = computed(() => {
 onMounted(() => {
   loadSymbols()
   loadLlmConfig()
+  refreshDataHealth()
 })
 
 onBeforeUnmount(() => {
@@ -1554,7 +1842,7 @@ onBeforeUnmount(() => {
 .mode-switch {
   width: max-content;
   display: inline-grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   padding: 4px;
   border: 1px solid color-mix(in srgb, var(--accent-2) 38%, transparent);
@@ -1683,7 +1971,9 @@ h1 {
 }
 
 .llm-config-card,
-.side-llm-status {
+.data-health-card,
+.side-llm-status,
+.side-data-health {
   width: min(540px, 100%);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1696,7 +1986,9 @@ h1 {
 }
 
 .llm-config-card span,
-.side-llm-status span {
+.data-health-card span,
+.side-llm-status span,
+.side-data-health span {
   display: block;
   color: var(--muted);
   font-size: 12px;
@@ -1704,7 +1996,9 @@ h1 {
 }
 
 .llm-config-card strong,
-.side-llm-status strong {
+.data-health-card strong,
+.side-llm-status strong,
+.side-data-health strong {
   display: block;
   margin-top: 5px;
   color: var(--text);
@@ -1713,7 +2007,9 @@ h1 {
 }
 
 .llm-config-card small,
-.side-llm-status small {
+.data-health-card small,
+.side-llm-status small,
+.side-data-health small {
   display: block;
   margin-top: 5px;
   color: var(--muted);
@@ -1722,7 +2018,9 @@ h1 {
 }
 
 .llm-config-card button,
-.side-llm-status button {
+.data-health-card button,
+.side-llm-status button,
+.side-data-health button {
   height: 36px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1741,6 +2039,38 @@ h1 {
   line-height: 1.45;
 }
 
+.data-health-card {
+  align-items: stretch;
+}
+
+.data-health-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.health-check-grid {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.health-check-pill {
+  padding: 7px 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.data-health-card > small {
+  grid-column: 1 / -1;
+}
+
 .llm-config-card .ok,
 .side-llm-status .ok {
   color: var(--accent);
@@ -1748,6 +2078,18 @@ h1 {
 
 .llm-config-card .failed,
 .side-llm-status .failed {
+  color: var(--risk);
+}
+
+.health-ok {
+  color: var(--cold);
+}
+
+.health-warning {
+  color: var(--accent);
+}
+
+.health-error {
   color: var(--risk);
 }
 
@@ -2292,10 +2634,15 @@ select option {
   line-height: 1.65;
 }
 
-.side-llm-status {
+.side-llm-status,
+.side-data-health {
   width: 100%;
   grid-template-columns: 1fr;
   margin-top: 12px;
+}
+
+.side-data-health button {
+  width: max-content;
 }
 
 .metric-grid {
@@ -2346,20 +2693,29 @@ select option {
 
 .asset-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: var(--muted);
   font: 800 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-.asset-line strong {
-  color: var(--text);
-  font-size: 14px;
+.asset-line span {
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 32%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-2) 8%, transparent);
 }
 
 h1 {
   font-size: clamp(24px, 3vw, 38px);
   line-height: 1.05;
+}
+
+h1 span {
+  color: var(--accent-2);
+  font: 850 0.58em/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  vertical-align: baseline;
 }
 
 .asset-block p {
@@ -2776,6 +3132,232 @@ h1 {
   color: var(--text);
   font: 850 15px/1.15 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   word-break: break-word;
+}
+
+.batch-backtest-panel,
+.source-record-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 38%, transparent);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 9%, transparent), transparent 46%),
+    color-mix(in srgb, var(--panel-solid) 88%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent-2) 68%, transparent);
+}
+
+.batch-head,
+.source-record-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.batch-head span,
+.batch-head b,
+.source-record-head span,
+.source-record-grid span,
+.source-record-grid small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.batch-head strong,
+.source-record-head strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1.05;
+}
+
+.batch-run-table {
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.batch-row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.7fr 0.8fr 0.8fr 0.6fr;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--text);
+  font: 820 12px/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.batch-row.head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--muted);
+  background: var(--panel-solid);
+}
+
+.source-record-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.source-record-grid div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft);
+}
+
+.source-record-grid strong {
+  color: var(--text);
+  font: 850 15px/1.15 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.source-record-grid small {
+  overflow-wrap: anywhere;
+}
+
+.explanation-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.explanation-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.explanation-head span,
+.explanation-panel > p,
+.explanation-invalidations span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.explanation-head strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.08;
+}
+
+.explanation-head b {
+  min-width: 58px;
+  text-align: right;
+  color: var(--accent-2);
+  font: 950 42px/0.95 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.explanation-panel > p {
+  max-width: 980px;
+  margin: 0;
+  line-height: 1.7;
+}
+
+.explanation-layers {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.explanation-layer {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 196px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--soft);
+}
+
+.explanation-layer.explain-support {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.explanation-layer.explain-caution {
+  border-color: color-mix(in srgb, var(--accent-2) 42%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent-2) 70%, transparent);
+}
+
+.explanation-layer.explain-oppose {
+  border-color: color-mix(in srgb, var(--risk) 42%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--risk) 70%, transparent);
+}
+
+.layer-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.layer-top span,
+.explanation-layer b {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.layer-top strong {
+  color: var(--text);
+  font: 900 24px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.explanation-layer.explain-support b {
+  color: var(--accent);
+}
+
+.explanation-layer.explain-caution b {
+  color: var(--accent-2);
+}
+
+.explanation-layer.explain-oppose b {
+  color: var(--risk);
+}
+
+.explanation-layer ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 15px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.explanation-invalidations {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--risk) 28%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--risk) 8%, transparent);
+}
+
+.explanation-invalidations p {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .forecast-insight {
@@ -3717,12 +4299,18 @@ b.negative {
   .forecast-stats,
   .insight-metrics,
   .insight-notes,
-  .backtest-compare-panel,
-  .compare-metrics,
-  .metric-grid,
-  .agent-row {
-    grid-template-columns: 1fr;
-  }
+	  .backtest-compare-panel,
+	  .compare-metrics,
+	  .source-record-grid,
+	  .explanation-layers,
+	  .metric-grid,
+	  .agent-row {
+	    grid-template-columns: 1fr;
+	  }
+
+	  .batch-row {
+	    grid-template-columns: 1fr;
+	  }
 
   .credibility-radar-panel,
   .radar-legend-list div {

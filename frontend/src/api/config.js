@@ -13,3 +13,11 @@ export function checkLlmConfig() {
     method: 'post'
   })
 }
+
+export function getDataSourceHealth(symbol = '600519') {
+  return request({
+    url: '/api/config/data-sources/health',
+    method: 'get',
+    params: { symbol }
+  })
+}

@@ -23,3 +23,11 @@ export function backtestStockProphecy(data) {
     data
   })
 }
+
+export function batchBacktestStockProphecy(data) {
+  return request({
+    url: '/api/stock/prophecy/backtest/batch',
+    method: 'post',
+    data
+  })
+}
