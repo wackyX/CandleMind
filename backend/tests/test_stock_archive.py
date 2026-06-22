@@ -9,11 +9,13 @@ from app.services.stock_archive import (
     read_prophecy_archive,
     set_cached_prophecy,
 )
+from app.services.stock_investor_panel import build_deep_investor_commentary, build_investor_panel
 from app.services.stock_market_data import Candle
 from app.services.stock_prophecy import (
     build_data_sources_meta,
     build_llm_forecast,
     build_prophecy_explanation,
+    build_risk_monitor,
     evaluate_backtest,
     summarize_batch_backtest,
 )
@@ -168,3 +170,84 @@ def test_prophecy_explanation_has_structured_layers():
     assert result["layers"]
     assert {item["key"] for item in result["layers"]} == {"technical", "analog", "events", "model", "risk"}
     assert result["score"] > 0
+
+
+def test_risk_monitor_detects_high_upper_wick_and_volume_stall():
+    candles = [
+        Candle(date=f"2026-05-{index + 1:02d}", open=106, high=108, low=105, close=107, volume=1000)
+        for index in range(20)
+    ]
+    candles.append(Candle(date="2026-05-22", open=108, high=112, low=107, close=108, volume=2600))
+    indicators = [{"date": item.date, "ma20": 100, "rsi14": 68, "atr14": 3} for item in candles]
+    snapshot = {
+        "close": 108,
+        "changePct": 0.93,
+        "support": 103,
+        "resistance": 112,
+        "high20": 112,
+        "ma20": 100,
+        "rsi14": 68,
+        "atr14": 3,
+    }
+
+    result = build_risk_monitor(candles, indicators, snapshot, events=None)
+    keys = {item["key"] for item in result["alerts"]}
+
+    assert result["level"] in {"medium", "high"}
+    assert "high_upper_wick" in keys
+    assert "volume_no_price" in keys
+
+
+def test_investor_panel_builds_original_uzi_vote():
+    report = {
+        "symbol": "600519",
+        "name": "贵州茅台",
+        "snapshot": {
+            "close": 1200,
+            "changePct": 1.2,
+            "ma5": 1190,
+            "ma20": 1160,
+            "ma60": 1120,
+            "rsi14": 58,
+        },
+        "forecast": {"direction": "bull", "probability": 66},
+        "events": {"signal": {"score": 2.5}, "events": [{"title": "回购公告"}]},
+        "analog": {"upProbability": 61, "sampleSize": 24},
+        "llmProphecy": {"status": "ok", "direction": "bull", "probability": 68},
+        "riskMonitor": {
+            "level": "medium",
+            "score": 42,
+            "metrics": {"volumeRatio20": 1.35},
+        },
+        "dataSources": {"market": {"latestCandleDate": "2026-06-18"}},
+    }
+
+    result = build_investor_panel(report)
+
+    assert result["total"] == 65
+    assert 0 < result["active"] <= 65
+    assert result["skipped"] == result["total"] - result["active"]
+    assert len(result["investors"]) == 65
+    assert {item["group"] for item in result["groups"]} == set("ABCDEFGHI")
+    assert sum(result["signalDistribution"].values()) == result["active"]
+    assert result["mode"] == "uzi_original_rule_engine"
+    assert all("engine" in item for item in result["investors"])
+
+
+def test_deep_investor_commentary_handles_missing_llm(monkeypatch):
+    monkeypatch.setattr(Config, "LLM_API_KEY", "dummy")
+    report = {
+        "symbol": "600519",
+        "name": "贵州茅台",
+        "snapshot": {"close": 1200, "ma5": 1190, "ma20": 1160, "ma60": 1120, "rsi14": 58},
+        "forecast": {"direction": "bull", "probability": 66},
+        "events": {"signal": {"score": 2.5}, "events": []},
+        "analog": {"upProbability": 61},
+        "riskMonitor": {"score": 42, "metrics": {"volumeRatio20": 1.35}},
+    }
+    panel = build_investor_panel(report)
+
+    result = build_deep_investor_commentary(report, panel)
+
+    assert result["status"] == "missing_config"
+    assert result["enabled"] is False

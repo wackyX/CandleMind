@@ -8,6 +8,7 @@ from flask import jsonify, request
 
 from . import stock_bp
 from ..services.stock_archive import list_prophecy_archives, read_prophecy_archive
+from ..services.stock_investor_panel import build_deep_investor_commentary, build_investor_panel
 from ..services.stock_market_data import search_symbols
 from ..services.stock_prophecy import (
     BacktestRequest,
@@ -123,6 +124,65 @@ def prophecy_batch_backtest():
         return jsonify({"success": True, "data": result})
     except Exception as exc:
         logger.error(f"A股批量回测失败: {exc}")
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                }
+            ),
+            500,
+        )
+
+
+@stock_bp.route("/prophecy/panel", methods=["POST"])
+def prophecy_investor_panel():
+    try:
+        data = request.get_json() or {}
+        report = data.get("report")
+        archive_id = data.get("archiveId")
+        if not report and archive_id:
+            archive = read_prophecy_archive(str(archive_id))
+            if not archive:
+                return jsonify({"success": False, "error": "推演档案不存在，无法召集评委"}), 404
+            report = archive.get("result")
+        if not report:
+            return jsonify({"success": False, "error": "缺少预言报告或 archiveId"}), 400
+        result = build_investor_panel(report)
+        return jsonify({"success": True, "data": result})
+    except Exception as exc:
+        logger.error(f"评委打分失败: {exc}")
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                }
+            ),
+            500,
+        )
+
+
+@stock_bp.route("/prophecy/panel/deep-commentary", methods=["POST"])
+def prophecy_investor_panel_deep_commentary():
+    try:
+        data = request.get_json() or {}
+        report = data.get("report")
+        panel = data.get("panel")
+        archive_id = data.get("archiveId")
+        if not report and archive_id:
+            archive = read_prophecy_archive(str(archive_id))
+            if not archive:
+                return jsonify({"success": False, "error": "推演档案不存在，无法生成深度评语"}), 404
+            report = archive.get("result")
+        if not report:
+            return jsonify({"success": False, "error": "缺少预言报告或 archiveId"}), 400
+        result = build_deep_investor_commentary(report, panel)
+        return jsonify({"success": True, "data": result})
+    except Exception as exc:
+        logger.error(f"深度评语生成失败: {exc}")
         return (
             jsonify(
                 {

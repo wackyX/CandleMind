@@ -128,6 +128,7 @@ def run_prophecy(request: ProphecyRequest) -> dict:
     scores = apply_llm_to_scenarios(baseline_scores, llm_prophecy)
     path = project_paths(candles[-1].close, snapshot, horizon, scores)
     forecast = build_llm_forecast(candles[-1].close, snapshot, horizon, scores, llm_prophecy) or baseline_forecast
+    risk_monitor = build_risk_monitor(candles, indicators, snapshot, events)
     agents = agent_views(snapshot, analog, scores, events, llm_prophecy)
     explanation = build_prophecy_explanation(snapshot, analog, events, scores, forecast, llm_prophecy)
 
@@ -155,6 +156,7 @@ def run_prophecy(request: ProphecyRequest) -> dict:
         "scenarios": scores,
         "paths": path,
         "forecast": forecast,
+        "riskMonitor": risk_monitor,
         "explanation": explanation,
         "baselineForecast": baseline_forecast,
         "llmProphecy": llm_prophecy,
@@ -394,6 +396,7 @@ def _build_prophecy_report(
     scores = apply_llm_to_scenarios(baseline_scores, llm_prophecy)
     path = project_paths(candles[-1].close, snapshot, horizon, scores)
     forecast = build_llm_forecast(candles[-1].close, snapshot, horizon, scores, llm_prophecy) or baseline_forecast
+    risk_monitor = build_risk_monitor(candles, indicators, snapshot, events)
     agents = agent_views(snapshot, analog, scores, events, llm_prophecy)
     explanation = build_prophecy_explanation(snapshot, analog, events, scores, forecast, llm_prophecy)
 
@@ -420,6 +423,7 @@ def _build_prophecy_report(
         "scenarios": scores,
         "paths": path,
         "forecast": forecast,
+        "riskMonitor": risk_monitor,
         "explanation": explanation,
         "baselineForecast": baseline_forecast,
         "llmProphecy": llm_prophecy,
@@ -620,6 +624,193 @@ def build_data_sources_meta(
     if elapsed_ms is not None:
         sources["elapsedMs"] = elapsed_ms
     return sources
+
+
+def build_risk_monitor(
+    candles: list[Candle],
+    indicators: list[dict],
+    snapshot: dict,
+    events: dict | None = None,
+) -> dict:
+    latest = candles[-1]
+    previous = candles[-2] if len(candles) >= 2 else latest
+    recent = candles[-20:] if len(candles) >= 20 else candles
+    avg_volume_20 = sum(item.volume for item in recent) / max(len(recent), 1)
+    volume_ratio = latest.volume / max(avg_volume_20, 1)
+    range_pct = (latest.high - latest.low) / max(latest.close, 0.01) * 100
+    body_pct = abs(latest.close - latest.open) / max(latest.open, 0.01) * 100
+    upper_wick = latest.high - max(latest.open, latest.close)
+    lower_wick = min(latest.open, latest.close) - latest.low
+    day_range = max(latest.high - latest.low, 0.01)
+    upper_wick_ratio = upper_wick / day_range
+    lower_wick_ratio = lower_wick / day_range
+    close_to_high20 = latest.close / max(snapshot.get("high20") or latest.close, 0.01)
+    close_to_support = (latest.close - (snapshot.get("support") or latest.close)) / max(latest.close, 0.01) * 100
+    ma20 = snapshot.get("ma20") or latest.close
+    rsi = snapshot.get("rsi14") or 50
+    atr = snapshot.get("atr14") or 0
+    atr_pct = atr / max(latest.close, 0.01) * 100
+    event_score = float(((events or {}).get("signal") or {}).get("score") or 0)
+    alerts: list[dict] = []
+
+    def add_alert(key: str, name: str, severity: str, score: int, evidence: str, suggestion: str) -> None:
+        alerts.append(
+            {
+                "key": key,
+                "name": name,
+                "severity": severity,
+                "score": max(0, min(100, int(score))),
+                "evidence": evidence,
+                "suggestion": suggestion,
+            }
+        )
+
+    if close_to_high20 >= 0.96 and upper_wick_ratio >= 0.45 and volume_ratio >= 1.2:
+        add_alert(
+            "high_upper_wick",
+            "高位长上影",
+            "high",
+            86,
+            f"收盘接近 20 日高点，单日上影占振幅 {upper_wick_ratio * 100:.0f}%，量能为 20 日均量 {volume_ratio:.2f} 倍。",
+            "警惕冲高回落后的短线抛压，后续需要放量突破当日高点才算化解。",
+        )
+    elif upper_wick_ratio >= 0.55 and range_pct >= 3:
+        add_alert(
+            "upper_wick_pressure",
+            "上影线抛压",
+            "medium",
+            64,
+            f"上影占振幅 {upper_wick_ratio * 100:.0f}%，日内振幅 {range_pct:.2f}%。",
+            "观察次日是否继续被上影区压制。",
+        )
+
+    if volume_ratio >= 2 and abs(snapshot.get("changePct") or 0) < 1.2:
+        add_alert(
+            "volume_no_price",
+            "放量滞涨",
+            "high",
+            82,
+            f"成交量为 20 日均量 {volume_ratio:.2f} 倍，但涨跌幅仅 {snapshot.get('changePct')}%。",
+            "大额换手未推动价格，需警惕筹码松动或资金分歧。",
+        )
+
+    if latest.close > previous.close and volume_ratio < 0.72 and latest.close > ma20:
+        add_alert(
+            "low_volume_rise",
+            "缩量上行",
+            "medium",
+            58,
+            f"收盘上涨且位于 MA20 上方，但量能仅为 20 日均量 {volume_ratio:.2f} 倍。",
+            "上涨缺少量能确认，追高信号需要降低权重。",
+        )
+
+    if close_to_support <= 1.2:
+        severity = "high" if close_to_support <= 0.4 else "medium"
+        add_alert(
+            "support_pressure",
+            "贴近支撑",
+            severity,
+            78 if severity == "high" else 60,
+            f"收盘价距离支撑位约 {close_to_support:.2f}%。",
+            "若有效跌破支撑，当前预言需要重新推演。",
+        )
+
+    if rsi >= 72:
+        add_alert(
+            "overheated_rsi",
+            "RSI 过热",
+            "medium",
+            62,
+            f"RSI14 为 {rsi:.2f}，进入短线过热区域。",
+            "降低连续上行预期，关注高开低走或横盘消化。",
+        )
+    elif rsi <= 28:
+        add_alert(
+            "oversold_rsi",
+            "RSI 超卖",
+            "medium",
+            56,
+            f"RSI14 为 {rsi:.2f}，处于短线超卖区域。",
+            "看空预言需要考虑技术性反抽。",
+        )
+
+    if atr_pct >= 5:
+        add_alert(
+            "high_volatility",
+            "波动放大",
+            "medium",
+            66,
+            f"ATR14 占收盘价 {atr_pct:.2f}%，显著高于常规日 K 波动。",
+            "未来 K 线区间应给更宽容错，方向置信度下调。",
+        )
+
+    if event_score >= 4 and latest.close < previous.close:
+        add_alert(
+            "good_news_price_down",
+            "利好不涨",
+            "high",
+            80,
+            f"事件分 {event_score:.2f} 偏多，但最新收盘低于前收。",
+            "事件与价格背离，需警惕利好兑现或资金不认可。",
+        )
+    elif event_score <= -4 and latest.close > previous.close:
+        add_alert(
+            "bad_news_price_up",
+            "利空不跌",
+            "medium",
+            55,
+            f"事件分 {event_score:.2f} 偏空，但最新收盘高于前收。",
+            "价格抗跌说明承接较强，单纯看空需谨慎。",
+        )
+
+    if lower_wick_ratio >= 0.55 and range_pct >= 3 and latest.close >= latest.open:
+        add_alert(
+            "lower_wick_support",
+            "下影承接",
+            "low",
+            34,
+            f"下影占振幅 {lower_wick_ratio * 100:.0f}%，且收盘不弱于开盘。",
+            "该信号偏向风险缓释，可作为支撑有效性的观察点。",
+        )
+
+    if not alerts:
+        alerts.append(
+            {
+                "key": "no_major_anomaly",
+                "name": "未见显著异常",
+                "severity": "low",
+                "score": 18,
+                "evidence": f"量能为 20 日均量 {volume_ratio:.2f} 倍，日内振幅 {range_pct:.2f}%，未触发主要异常规则。",
+                "suggestion": "按常规推演处理，继续关注支撑压力和事件变化。",
+            }
+        )
+
+    severity_weight = {"high": 34, "medium": 20, "low": 6}
+    risk_score = min(100, sum(severity_weight.get(item["severity"], 10) for item in alerts if item["key"] != "no_major_anomaly"))
+    if risk_score >= 68:
+        level = "high"
+        label = "异常风险高"
+    elif risk_score >= 32:
+        level = "medium"
+        label = "存在异常信号"
+    else:
+        level = "low"
+        label = "风险可控"
+    return {
+        "level": level,
+        "label": label,
+        "score": risk_score,
+        "summary": f"触发 {len([item for item in alerts if item['key'] != 'no_major_anomaly'])} 个异常监测信号。",
+        "metrics": {
+            "volumeRatio20": round(volume_ratio, 2),
+            "rangePct": round(range_pct, 2),
+            "bodyPct": round(body_pct, 2),
+            "upperWickRatio": round(upper_wick_ratio, 2),
+            "lowerWickRatio": round(lower_wick_ratio, 2),
+            "atrPct": round(atr_pct, 2),
+        },
+        "alerts": sorted(alerts, key=lambda item: item["score"], reverse=True),
+    }
 
 
 def build_prophecy_explanation(

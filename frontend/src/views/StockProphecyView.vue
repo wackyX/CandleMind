@@ -446,9 +446,25 @@
                   class="axis-label"
                   :x="chart.width - chart.padding.right + 8"
                   :y="tick.y + 4"
-                >
-                  {{ tick.value }}
-                </text>
+	                >
+	                  {{ tick.value }}
+	                </text>
+	                <line
+	                  class="volume-separator"
+	                  :x1="chart.padding.left"
+	                  :x2="chart.width - chart.padding.right"
+	                  :y1="chart.volumeRegion.top - 10"
+	                  :y2="chart.volumeRegion.top - 10"
+	                />
+	                <text
+	                  v-for="tick in chart.volumeTicks"
+	                  :key="`volume-${tick.value}`"
+	                  class="volume-label"
+	                  :x="chart.width - chart.padding.right + 8"
+	                  :y="tick.y"
+	                >
+	                  {{ tick.value }}
+	                </text>
               </g>
               <rect
                 v-if="chart.forecastBand"
@@ -456,7 +472,7 @@
                 :x="chart.forecastBand.x"
                 :y="chart.padding.top"
                 :width="chart.forecastBand.width"
-                :height="chart.height - chart.padding.top - chart.padding.bottom"
+                :height="chart.forecastBand.height"
               />
               <line
                 v-if="chart.forecastBand"
@@ -464,7 +480,7 @@
                 :x1="chart.forecastBand.x"
                 :x2="chart.forecastBand.x"
                 :y1="chart.padding.top"
-                :y2="chart.height - chart.padding.bottom"
+                :y2="chart.volumeRegion.bottom"
               />
               <text
                 v-if="chart.forecastBand"
@@ -487,7 +503,19 @@
                   />
                 </g>
               </g>
-	              <g class="forecast-candles">
+	              <g class="volume-bars">
+	                <rect
+	                  v-for="item in chart.volumeBars"
+	                  :key="`volume-${item.date}`"
+	                  :x="item.x - item.width / 2"
+	                  :y="item.y"
+	                  :width="item.width"
+	                  :height="item.height"
+	                  :class="item.up ? 'up-volume' : 'down-volume'"
+	                  :style="{ '--d': `${item.animationIndex * 0.014}s` }"
+	                />
+	              </g>
+		              <g class="forecast-candles">
                 <g
                   v-for="item in chart.forecastCandles"
                   :key="`forecast-${item.day}`"
@@ -543,17 +571,27 @@
                     r="3.5"
                   />
 	              </g>
-	              <g v-if="chart.actualCandles.length" class="actual-candles">
-	                <g v-for="item in chart.actualCandles" :key="`actual-${item.date}`">
-	                  <line :x1="item.x" :x2="item.x" :y1="item.highY" :y2="item.lowY" />
+		              <g v-if="chart.actualCandles.length" class="actual-candles">
+		                <g v-for="item in chart.actualCandles" :key="`actual-${item.date}`">
+		                  <line :x1="item.x" :x2="item.x" :y1="item.highY" :y2="item.lowY" />
 	                  <rect
 	                    :x="item.x - item.width / 2"
 	                    :y="item.bodyTopY"
 	                    :width="item.width"
 	                    :height="item.bodyHeight"
-	                  />
-	                </g>
-	              </g>
+		                  />
+		                </g>
+		              </g>
+		              <g v-if="chart.actualVolumeBars.length" class="actual-volume-bars">
+		                <rect
+		                  v-for="item in chart.actualVolumeBars"
+		                  :key="`actual-volume-${item.date}`"
+		                  :x="item.x - item.width / 2"
+		                  :y="item.y"
+		                  :width="item.width"
+		                  :height="item.height"
+		                />
+		              </g>
               </g>
               <path class="ma-line ma5" :d="chart.ma5Path" />
               <path class="ma-line ma20" :d="chart.ma20Path" />
@@ -568,9 +606,10 @@
 
                 <div class="legend-row">
                   <span><i class="dot up-dot"></i>上涨K线</span>
-                  <span><i class="dot down-dot"></i>下跌K线</span>
-                  <span><i class="line ma5-dot"></i>MA5</span>
+	                  <span><i class="dot down-dot"></i>下跌K线</span>
+	                  <span><i class="line ma5-dot"></i>MA5</span>
 	                  <span><i class="line ma20-dot"></i>MA20</span>
+	                  <span><i class="volume-dot"></i>成交量</span>
 	                  <span><i class="dot prophecy-dot"></i>单一路径预言K线</span>
 	                  <span v-if="report.backtest"><i class="dot actual-dot"></i>回测真实K线</span>
 	                </div>
@@ -708,6 +747,28 @@
 		              </div>
 		            </div>
 
+		            <div v-if="riskMonitor" :class="['chart-risk-strip', riskLevelTone(riskMonitor.level)]">
+		              <div class="risk-strip-score">
+		                <span>盘面风险提示</span>
+		                <strong>{{ riskMonitor.score }}</strong>
+		              </div>
+		              <div class="risk-strip-copy">
+		                <div>
+		                  <strong>{{ riskMonitor.label }}</strong>
+		                  <p>{{ riskMonitor.summary }}</p>
+		                </div>
+		                <div class="risk-strip-alerts">
+		                  <span
+		                    v-for="item in (riskMonitor.alerts || []).slice(0, 2)"
+		                    :key="`risk-strip-${item.key}`"
+		                  >
+		                    {{ item.name }} {{ item.score }}
+		                  </span>
+		                  <span v-if="!riskMonitor.alerts?.length">暂无显著异常</span>
+		                </div>
+		              </div>
+		            </div>
+
 		            <div v-if="sourceSnapshot" class="source-record-panel">
 		              <div class="source-record-head">
 		                <span>本次数据源记录</span>
@@ -782,6 +843,49 @@
 	            </div>
 	          </section>
 
+	          <section v-if="riskMonitor" class="surface anomaly-panel">
+	            <div class="anomaly-head">
+	              <div>
+	                <span>异常风险监测</span>
+	                <strong :class="riskLevelTone(riskMonitor.level)">{{ riskMonitor.label }}</strong>
+	              </div>
+	              <b>{{ riskMonitor.score }}</b>
+	            </div>
+	            <p>{{ riskMonitor.summary }}</p>
+	            <div class="anomaly-metrics">
+	              <div>
+	                <span>量比20</span>
+	                <strong>{{ riskMonitor.metrics?.volumeRatio20 }}</strong>
+	              </div>
+	              <div>
+	                <span>振幅</span>
+	                <strong>{{ riskMonitor.metrics?.rangePct }}%</strong>
+	              </div>
+	              <div>
+	                <span>上影占比</span>
+	                <strong>{{ Math.round((riskMonitor.metrics?.upperWickRatio || 0) * 100) }}%</strong>
+	              </div>
+	              <div>
+	                <span>ATR占比</span>
+	                <strong>{{ riskMonitor.metrics?.atrPct }}%</strong>
+	              </div>
+	            </div>
+	            <div class="anomaly-alerts">
+	              <article
+	                v-for="item in riskMonitor.alerts"
+	                :key="`risk-alert-${item.key}`"
+	                :class="['anomaly-alert', riskLevelTone(item.severity)]"
+	              >
+	                <div>
+	                  <span>{{ item.name }}</span>
+	                  <strong>{{ item.score }}</strong>
+	                </div>
+	                <p>{{ item.evidence }}</p>
+	                <small>{{ item.suggestion }}</small>
+	              </article>
+	            </div>
+	          </section>
+
 	          <section v-if="prophecyExplanation" class="surface explanation-panel">
 	            <div class="explanation-head">
 	              <div>
@@ -810,6 +914,140 @@
 	            <div v-if="prophecyExplanation.keyInvalidations?.length" class="explanation-invalidations">
 	              <span>重新推演触发器</span>
 	              <p v-for="item in prophecyExplanation.keyInvalidations" :key="`invalidate-${item}`">{{ item }}</p>
+	            </div>
+	          </section>
+
+	          <section class="surface investor-panel-shell">
+	            <div class="investor-panel-callout">
+	              <div>
+	                <strong>评委打分</strong>
+	              </div>
+	              <button type="button" @click="summonInvestorPanel" :disabled="investorPanelLoading || !report">
+	                {{ investorPanelLoading ? '评委打分中' : investorPanel ? '重新打分' : '启动打分' }}
+	              </button>
+	            </div>
+	            <p v-if="investorPanelError" class="panel-error">{{ investorPanelError }}</p>
+	            <div v-if="investorPanel" class="investor-panel-result">
+	              <div class="panel-consensus-card">
+	                <span>多头共识</span>
+	                <strong>{{ investorPanel.panelConsensus }}%</strong>
+	                <p>{{ investorPanel.summary }}</p>
+	              </div>
+	              <div class="panel-vote-grid">
+	                <div>
+	                  <span>评委池</span>
+	                  <strong>{{ investorPanel.total }}</strong>
+	                </div>
+	                <div>
+	                  <span>参与打分</span>
+	                  <strong>{{ investorPanel.active }}</strong>
+	                </div>
+	                <div>
+	                  <span>已跳过</span>
+	                  <strong>{{ investorPanel.skipped }}</strong>
+	                </div>
+	                <div>
+	                  <span>看多</span>
+	                  <strong>{{ investorPanel.signalDistribution.bullish }}</strong>
+	                </div>
+	                <div>
+	                  <span>中性</span>
+	                  <strong>{{ investorPanel.signalDistribution.neutral }}</strong>
+	                </div>
+	                <div>
+	                  <span>看空</span>
+	                  <strong>{{ investorPanel.signalDistribution.bearish }}</strong>
+	                </div>
+	                <div>
+	                  <span>平均分</span>
+	                  <strong>{{ investorPanel.avgScore }}</strong>
+	                </div>
+	              </div>
+	              <div class="panel-school-grid">
+	                <article v-for="group in investorPanel.groups" :key="`panel-group-${group.group}`">
+	                  <div>
+	                    <span>{{ group.group }}</span>
+	                    <strong>{{ group.label }}</strong>
+	                  </div>
+	                  <b>{{ group.stance }}</b>
+	                  <small>多 {{ group.bullish }} / 中 {{ group.neutral }} / 空 {{ group.bearish }}</small>
+	                </article>
+	              </div>
+	              <div class="panel-investor-list">
+	                <article
+	                  v-for="item in investorPanelTop"
+	                  :key="`panel-investor-${item.investorId}`"
+	                  :class="['panel-investor-card', `panel-${item.signal}`]"
+	                >
+	                  <div>
+	                    <span>{{ item.groupLabel }}</span>
+	                    <strong>{{ item.name }}</strong>
+	                    <b>{{ item.score }}</b>
+	                  </div>
+	                  <p>{{ item.comment }}</p>
+	                  <small>{{ item.verdict }} · {{ item.period }}</small>
+	                </article>
+	              </div>
+	              <div class="panel-deep-actions">
+	                <button
+	                  type="button"
+	                  @click="generateInvestorDeepCommentary"
+	                  :disabled="investorDeepLoading || !investorPanel"
+	                >
+	                  {{ investorDeepLoading ? '生成深度评语中' : investorDeepCommentary ? '重新生成深度评语' : '生成深度评语' }}
+	                </button>
+	                <span v-if="investorDeepCommentary?.model">模型：{{ investorDeepCommentary.model }}</span>
+	              </div>
+	              <div v-if="investorDeepLoading" class="deep-progress">
+	                <div class="deep-progress-head">
+	                  <span>{{ investorDeepProgressSteps[investorDeepStepIndex] }}</span>
+	                  <strong>{{ investorDeepProgress }}%</strong>
+	                </div>
+	                <div class="deep-progress-track">
+	                  <i :style="{ width: `${investorDeepProgress}%` }"></i>
+	                </div>
+	                <small>评委观点正在汇总，模型会把命中规则和多空分歧整理成深度评语。</small>
+	              </div>
+	              <p v-if="investorDeepError" class="panel-error">{{ investorDeepError }}</p>
+	              <div v-if="investorDeepCommentary" class="panel-deep-result">
+	                <div class="deep-summary">
+	                  <span>深度评语</span>
+	                  <strong>{{ investorDeepCommentary.hostVerdict || '模型复核完成' }}</strong>
+	                  <p>{{ investorDeepCommentary.summary }}</p>
+	                </div>
+	                <div v-if="investorDeepCommentary.groups?.length" class="deep-group-grid">
+	                  <article v-for="group in investorDeepCommentary.groups" :key="`deep-group-${group.group}`">
+	                    <span>{{ group.label }}</span>
+	                    <strong>{{ group.stance }}</strong>
+	                    <p>{{ group.commentary }}</p>
+	                  </article>
+	                </div>
+	                <div v-if="investorDeepCommentary.investors?.length" class="deep-investor-grid">
+	                  <article
+	                    v-for="item in investorDeepCommentary.investors"
+	                    :key="`deep-investor-${item.investorId}`"
+	                    :class="[`panel-${item.signal}`]"
+	                  >
+	                    <div>
+	                      <span>{{ item.groupLabel }}</span>
+	                      <strong>{{ item.name }} · {{ item.score }}</strong>
+	                    </div>
+	                    <p>{{ item.commentary }}</p>
+	                    <small>{{ item.reasoning }}</small>
+	                    <b v-if="item.watch">{{ item.watch }}</b>
+	                  </article>
+	                </div>
+	                <div v-if="investorDeepCommentary.risks?.length || investorDeepCommentary.invalidations?.length" class="deep-risk-grid">
+	                  <div v-if="investorDeepCommentary.risks?.length">
+	                    <span>风险提醒</span>
+	                    <p v-for="item in investorDeepCommentary.risks" :key="`deep-risk-${item}`">{{ item }}</p>
+	                  </div>
+	                  <div v-if="investorDeepCommentary.invalidations?.length">
+	                    <span>失效条件</span>
+	                    <p v-for="item in investorDeepCommentary.invalidations" :key="`deep-invalid-${item}`">{{ item }}</p>
+	                  </div>
+	                </div>
+	              </div>
 	            </div>
 	          </section>
 
@@ -952,7 +1190,14 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { checkLlmConfig, getDataSourceHealth, getLlmConfig } from '../api/config'
-import { backtestStockProphecy, batchBacktestStockProphecy, generateStockProphecy, searchStockSymbols } from '../api/stock'
+import {
+  backtestStockProphecy,
+  batchBacktestStockProphecy,
+  generateStockProphecy,
+  runInvestorPanel,
+  runInvestorPanelDeepCommentary,
+  searchStockSymbols
+} from '../api/stock'
 
 const router = useRouter()
 const loading = ref(false)
@@ -968,6 +1213,15 @@ const checkingLlm = ref(false)
 const dataHealth = ref(null)
 const checkingDataHealth = ref(false)
 const selectedForecastIndex = ref(0)
+const investorPanel = ref(null)
+const investorPanelLoading = ref(false)
+const investorPanelError = ref('')
+const investorDeepCommentary = ref(null)
+const investorDeepLoading = ref(false)
+const investorDeepError = ref('')
+const investorDeepProgress = ref(0)
+const investorDeepStepIndex = ref(0)
+let investorDeepTimer = null
 const loadingSteps = [
   '连接东方财富并拉取近期日K',
   '计算均线、RSI、ATR和相似形态',
@@ -976,6 +1230,7 @@ const loadingSteps = [
   '生成单一路径预言K线',
   '校验风险边界并渲染结果'
 ]
+const fallbackDeepJudges = ['巴非特', '芒果', '段不平', '赵二板', '章萌主', '西朦斯']
 const loadingCandles = [
   { x: '7%', b: '28%', h: '52px', tone: 'gain' },
   { x: '13%', b: '36%', h: '66px', tone: 'gain' },
@@ -1014,11 +1269,28 @@ const form = reactive({
 
 const chart = computed(() => {
   if (!report.value) {
-    return { width: 980, height: 440, padding: { left: 56, right: 62, top: 26, bottom: 36 }, priceTicks: [], candles: [], forecastCandles: [], actualCandles: [], forecastBand: null }
+    return {
+      width: 980,
+      height: 520,
+      padding: { left: 56, right: 62, top: 26, bottom: 34 },
+      priceTicks: [],
+      volumeTicks: [],
+      volumeRegion: { top: 394, bottom: 486 },
+      candles: [],
+      forecastCandles: [],
+      actualCandles: [],
+      volumeBars: [],
+      actualVolumeBars: [],
+      forecastBand: null
+    }
   }
   const width = 980
-  const height = 440
-  const padding = { left: 56, right: 62, top: 26, bottom: 36 }
+  const height = 520
+  const padding = { left: 56, right: 62, top: 26, bottom: 34 }
+  const volumeHeight = 92
+  const volumeBottom = height - padding.bottom
+  const volumeTop = volumeBottom - volumeHeight
+  const priceBottom = volumeTop - 24
   const cutoffDate = report.value.backtest?.asOfDate
   const historySource = cutoffDate
     ? report.value.candles.filter((item) => !item.date || item.date <= cutoffDate)
@@ -1034,12 +1306,16 @@ const chart = computed(() => {
   const minPrice = Math.min(...allPrices) * 0.985
   const maxPrice = Math.max(...allPrices) * 1.015
   const innerWidth = width - padding.left - padding.right
-  const innerHeight = height - padding.top - padding.bottom
+  const priceHeight = priceBottom - padding.top
   const totalSlots = visibleCandles.length + Math.max(pathSource.length, actualSource.length) + 2
   const xStep = innerWidth / totalSlots
   const candleWidth = Math.max(3, Math.min(9, xStep * 0.58))
-  const y = (value) => padding.top + (maxPrice - value) / (maxPrice - minPrice) * innerHeight
+  const y = (value) => padding.top + (maxPrice - value) / (maxPrice - minPrice) * priceHeight
   const x = (index) => padding.left + index * xStep + xStep
+  const allVolumes = visibleCandles.concat(actualSource).map((item) => Number(item.volume || 0))
+  const maxVolume = Math.max(...allVolumes, 1)
+  const volumeY = (value) => volumeBottom - Number(value || 0) / maxVolume * volumeHeight
+  const volumeBarWidth = Math.max(2, Math.min(8, candleWidth * 0.84))
   const lastIndex = visibleCandles.length - 1
   const candles = visibleCandles.map((item, index) => ({
     ...item,
@@ -1052,6 +1328,19 @@ const chart = computed(() => {
     up: item.close >= item.open,
     animationIndex: index
   }))
+  const volumeBars = visibleCandles.map((item, index) => {
+    const barTop = volumeY(item.volume)
+    return {
+      date: item.date,
+      x: x(index),
+      y: barTop,
+      width: volumeBarWidth,
+      height: Math.max(1, volumeBottom - barTop),
+      up: item.close >= item.open,
+      animationIndex: index,
+      volume: item.volume
+    }
+  })
   const forecastCandles = forecastSource.map((item, index) => {
     const openY = y(item.open)
     const closeY = y(item.close)
@@ -1097,6 +1386,18 @@ const chart = computed(() => {
       up: item.close >= item.open
     }
   })
+  const actualVolumeBars = actualSource.map((item, index) => {
+    const barTop = volumeY(item.volume)
+    return {
+      date: item.date,
+      x: x(lastIndex + index + 1),
+      y: barTop,
+      width: Math.max(2, volumeBarWidth * 0.66),
+      height: Math.max(1, volumeBottom - barTop),
+      up: item.close >= item.open,
+      volume: item.volume
+    }
+  })
   const visibleIndicators = report.value.indicators.slice(-88)
   const makeLine = (values, offset = 0) => values
     .map((value, index) => value == null ? null : `${index === 0 || values[index - 1] == null ? 'M' : 'L'} ${x(index + offset).toFixed(2)} ${y(value).toFixed(2)}`)
@@ -1106,18 +1407,35 @@ const chart = computed(() => {
     const value = minPrice + (maxPrice - minPrice) * index / 4
     return { value: value.toFixed(2), y: y(value) }
   }).reverse()
+  const formatVolumeTick = (value) => {
+    if (value >= 100000000) return `${(value / 100000000).toFixed(1)}亿`
+    if (value >= 10000) return `${(value / 10000).toFixed(0)}万`
+    return `${Math.round(value)}`
+  }
   return {
     width,
     height,
     padding,
     priceTicks: ticks,
+    volumeTicks: [
+      { value: formatVolumeTick(maxVolume), y: volumeTop + 8 },
+      { value: 'VOL', y: volumeBottom - 4 }
+    ],
+    volumeRegion: {
+      top: volumeTop,
+      bottom: volumeBottom,
+      height: volumeHeight
+    },
     candles,
     forecastCandles,
     actualCandles,
+    volumeBars,
+    actualVolumeBars,
     forecastBand: forecastCandles.length
       ? {
           x: forecastCandles[0].x - xStep / 2,
-          width: xStep * (forecastCandles.length + 0.9)
+          width: xStep * (forecastCandles.length + 0.9),
+          height: volumeBottom - padding.top
         }
       : null,
     ma5Path: makeLine(visibleIndicators.map((item) => item.ma5)),
@@ -1149,6 +1467,46 @@ const batchBacktest = computed(() => report.value?.batchBacktest || null)
 const sourceSnapshot = computed(() => report.value?.dataSources || null)
 
 const prophecyExplanation = computed(() => report.value?.explanation || null)
+
+const riskMonitor = computed(() => report.value?.riskMonitor || null)
+
+const investorPanelTop = computed(() => {
+  const panel = investorPanel.value
+  if (!panel?.investors?.length) return []
+  const bulls = panel.investors
+    .filter((item) => item.signal === 'bullish')
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 3)
+  const bears = panel.investors
+    .filter((item) => item.signal === 'bearish')
+    .sort((left, right) => left.score - right.score)
+    .slice(0, 3)
+  return [...bulls, ...bears]
+})
+
+const investorDeepProgressSteps = computed(() => {
+  const panel = investorPanel.value
+  const names = []
+  const pushName = (item) => {
+    const name = item?.name
+    if (name && !names.includes(name)) names.push(name)
+  }
+  ;(panel?.topBulls || []).slice(0, 3).forEach(pushName)
+  ;(panel?.topBears || []).slice(0, 3).forEach(pushName)
+  ;(panel?.investors || [])
+    .filter((item) => item.signal === 'neutral')
+    .sort((left, right) => Number(right.confidence || 0) - Number(left.confidence || 0))
+    .slice(0, 2)
+    .forEach(pushName)
+  fallbackDeepJudges.forEach((name) => {
+    if (names.length < 6 && !names.includes(name)) names.push(name)
+  })
+  return [
+    ...names.slice(0, 6).map((name) => `${name}正在打分`),
+    '汇总评委分歧',
+    '生成深度评语'
+  ]
+})
 
 const credibilityBreakdown = computed(() => {
   if (!report.value?.forecast || !report.value?.snapshot) return null
@@ -1410,6 +1768,10 @@ const loadProphecy = async () => {
   }
   loading.value = true
   report.value = null
+  investorPanel.value = null
+  investorPanelError.value = ''
+  investorDeepCommentary.value = null
+  investorDeepError.value = ''
   selectedForecastIndex.value = 0
   error.value = ''
   startLoadingSteps()
@@ -1454,6 +1816,76 @@ const loadProphecy = async () => {
   } finally {
     stopLoadingSteps()
     loading.value = false
+  }
+}
+
+const summonInvestorPanel = async () => {
+  if (!report.value || investorPanelLoading.value) return
+  investorPanelLoading.value = true
+  investorPanelError.value = ''
+  investorDeepCommentary.value = null
+  investorDeepError.value = ''
+  try {
+    const res = await runInvestorPanel({
+      archiveId: report.value.archive?.id,
+      report: report.value.archive?.id ? undefined : report.value
+    })
+    investorPanel.value = res.data
+  } catch (err) {
+    investorPanelError.value = err.message || '评委打分失败'
+  } finally {
+    investorPanelLoading.value = false
+  }
+}
+
+const generateInvestorDeepCommentary = async () => {
+  if (!report.value || !investorPanel.value || investorDeepLoading.value) return
+  investorDeepLoading.value = true
+  investorDeepError.value = ''
+  investorDeepCommentary.value = null
+  startInvestorDeepProgress()
+  try {
+    const res = await runInvestorPanelDeepCommentary({
+      archiveId: report.value.archive?.id,
+      report: report.value.archive?.id ? undefined : report.value,
+      panel: investorPanel.value
+    })
+    finishInvestorDeepProgress()
+    investorDeepCommentary.value = res.data
+    if (res.data?.status && res.data.status !== 'ok') {
+      investorDeepError.value = res.data.summary || '深度评语暂不可用'
+    }
+  } catch (err) {
+    investorDeepError.value = err.message || '深度评语生成失败'
+  } finally {
+    stopInvestorDeepProgress()
+    investorDeepLoading.value = false
+  }
+}
+
+const startInvestorDeepProgress = () => {
+  stopInvestorDeepProgress()
+  investorDeepProgress.value = 8
+  investorDeepStepIndex.value = 0
+  investorDeepTimer = window.setInterval(() => {
+    const next = Math.min(92, investorDeepProgress.value + Math.ceil((96 - investorDeepProgress.value) * 0.08))
+    investorDeepProgress.value = next
+    investorDeepStepIndex.value = Math.min(
+      investorDeepProgressSteps.value.length - 1,
+      Math.floor((next / 100) * investorDeepProgressSteps.value.length)
+    )
+  }, 900)
+}
+
+const finishInvestorDeepProgress = () => {
+  investorDeepProgress.value = 100
+  investorDeepStepIndex.value = investorDeepProgressSteps.value.length - 1
+}
+
+const stopInvestorDeepProgress = () => {
+  if (investorDeepTimer) {
+    window.clearInterval(investorDeepTimer)
+    investorDeepTimer = null
   }
 }
 
@@ -1577,6 +2009,15 @@ const explanationTone = (value) => {
   return map[value] || 'explain-caution'
 }
 
+const riskLevelTone = (value) => {
+  const map = {
+    high: 'risk-high',
+    medium: 'risk-medium',
+    low: 'risk-low'
+  }
+  return map[value] || 'risk-medium'
+}
+
 const formatDateTime = (value) => new Date(value).toLocaleString('zh-CN', {
   month: '2-digit',
   day: '2-digit',
@@ -1658,6 +2099,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopLoadingSteps()
+  stopInvestorDeepProgress()
 })
 </script>
 
@@ -2835,10 +3277,17 @@ h1 span {
 }
 
 .axis-label,
-.forecast-label {
+.forecast-label,
+.volume-label {
   fill: var(--muted);
   font-size: 11px;
   font-weight: 800;
+}
+
+.volume-separator {
+  stroke: color-mix(in srgb, var(--muted) 26%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 4 6;
 }
 
 .forecast-label {
@@ -2886,12 +3335,25 @@ h1 span {
 }
 
 .candles line,
-.candles rect {
+.candles rect,
+.volume-bars rect {
   opacity: 0;
   transform-box: fill-box;
   transform-origin: center bottom;
   animation: candleReveal 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   animation-delay: var(--d);
+}
+
+.volume-bars rect {
+  stroke: none;
+}
+
+.up-volume {
+  fill: color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+.down-volume {
+  fill: color-mix(in srgb, var(--risk) 38%, transparent);
 }
 
 .prophecy-candle {
@@ -2947,6 +3409,13 @@ h1 span {
 .actual-candles rect {
   fill: color-mix(in srgb, var(--accent-2) 18%, transparent);
   stroke-dasharray: 3 2;
+}
+
+.actual-volume-bars rect {
+  fill: color-mix(in srgb, var(--accent-2) 24%, transparent);
+  stroke: color-mix(in srgb, var(--accent-2) 72%, transparent);
+  stroke-width: 1;
+  opacity: 0.9;
 }
 
 .upper-wick {
@@ -3032,7 +3501,8 @@ h1 span {
 }
 
 .dot,
-.line {
+.line,
+.volume-dot {
   display: inline-block;
   margin-right: 6px;
   vertical-align: middle;
@@ -3047,6 +3517,13 @@ h1 span {
 .line {
   width: 18px;
   height: 2px;
+}
+
+.volume-dot {
+  width: 13px;
+  height: 9px;
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--risk) 48%, transparent), color-mix(in srgb, var(--accent) 44%, transparent));
 }
 
 .up-dot {
@@ -3229,6 +3706,211 @@ h1 span {
   overflow-wrap: anywhere;
 }
 
+.chart-risk-strip {
+  display: grid;
+  grid-template-columns: minmax(118px, 0.22fr) 1fr;
+  gap: 14px;
+  align-items: stretch;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--risk) 34%, transparent);
+  border-radius: 18px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--risk) 12%, transparent), transparent 42%),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 9%, transparent), transparent 58%),
+    color-mix(in srgb, var(--panel-solid) 90%, transparent);
+  box-shadow:
+    inset 3px 0 0 currentColor,
+    0 16px 44px color-mix(in srgb, currentColor 9%, transparent);
+  overflow: hidden;
+}
+
+.risk-strip-score,
+.risk-strip-copy {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--soft) 78%, transparent);
+}
+
+.risk-strip-score {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 4px;
+  padding: 10px;
+}
+
+.risk-strip-score span,
+.risk-strip-copy p,
+.risk-strip-alerts span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.risk-strip-score strong {
+  color: currentColor;
+  font: 950 38px/0.95 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.risk-strip-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+}
+
+.risk-strip-copy strong {
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.risk-strip-copy p {
+  margin: 6px 0 0;
+  line-height: 1.55;
+}
+
+.risk-strip-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 360px;
+}
+
+.risk-strip-alerts span {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 999px;
+  padding: 0 10px;
+  color: currentColor;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  white-space: nowrap;
+}
+
+.anomaly-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.anomaly-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.anomaly-head span,
+.anomaly-panel > p,
+.anomaly-alert span,
+.anomaly-alert small,
+.anomaly-metrics span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.anomaly-head strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.08;
+}
+
+.anomaly-head b {
+  min-width: 58px;
+  text-align: right;
+  color: var(--risk);
+  font: 950 42px/0.95 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.anomaly-panel > p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.anomaly-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.anomaly-metrics div {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft);
+}
+
+.anomaly-metrics strong {
+  color: var(--text);
+  font: 850 17px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.anomaly-alerts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.anomaly-alert {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--soft);
+}
+
+.anomaly-alert div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.anomaly-alert strong {
+  color: var(--text);
+  font: 900 22px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.anomaly-alert p {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.anomaly-alert small {
+  line-height: 1.5;
+}
+
+.risk-high {
+  color: var(--risk);
+  border-color: color-mix(in srgb, var(--risk) 46%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--risk) 72%, transparent);
+}
+
+.risk-medium {
+  color: var(--accent-2);
+  border-color: color-mix(in srgb, var(--accent-2) 42%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent-2) 68%, transparent);
+}
+
+.risk-low {
+  color: var(--cold);
+  border-color: color-mix(in srgb, var(--cold) 38%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--cold) 62%, transparent);
+}
+
 .explanation-panel {
   display: grid;
   gap: 14px;
@@ -3358,6 +4040,366 @@ h1 span {
   color: var(--text);
   font-size: 13px;
   line-height: 1.55;
+}
+
+.investor-panel-shell {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.investor-panel-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.investor-panel-callout span,
+.investor-panel-callout p,
+.panel-error,
+.panel-consensus-card span,
+.panel-consensus-card p,
+.panel-vote-grid span,
+.panel-school-grid span,
+.panel-school-grid small,
+.panel-investor-card span,
+.panel-investor-card small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.investor-panel-callout strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.08;
+}
+
+.investor-panel-callout p,
+.panel-consensus-card p,
+.panel-investor-card p {
+  margin: 8px 0 0;
+  line-height: 1.65;
+}
+
+.investor-panel-callout button {
+  min-width: 128px;
+  min-height: 42px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.investor-panel-callout button:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+
+.panel-error {
+  margin: 0;
+  color: var(--risk);
+}
+
+.investor-panel-result {
+  display: grid;
+  gap: 12px;
+}
+
+.panel-consensus-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 38%, transparent);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 12%, transparent), transparent 48%),
+    var(--soft);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent-2) 80%, transparent);
+}
+
+.panel-consensus-card strong {
+  color: var(--accent-2);
+  font: 950 44px/0.95 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.panel-vote-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.panel-vote-grid div,
+.panel-school-grid article,
+.panel-investor-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--soft);
+}
+
+.panel-vote-grid div {
+  display: grid;
+  gap: 6px;
+  padding: 11px;
+}
+
+.panel-vote-grid strong {
+  color: var(--text);
+  font: 900 24px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.panel-school-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.panel-school-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.panel-school-grid article div,
+.panel-investor-card div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.panel-school-grid strong,
+.panel-investor-card strong {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.panel-school-grid b {
+  color: var(--accent-2);
+  font-size: 18px;
+}
+
+.panel-investor-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.panel-investor-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 12px;
+}
+
+.panel-investor-card b {
+  color: var(--accent-2);
+  font: 900 22px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.panel-investor-card p {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.panel-deep-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.panel-deep-actions button {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 48%, transparent);
+  border-radius: 999px;
+  color: var(--text);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, transparent), color-mix(in srgb, var(--accent-2) 18%, transparent)),
+    var(--soft);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.panel-deep-actions button:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+
+.panel-deep-actions span,
+.panel-deep-result span,
+.deep-investor-grid small,
+.deep-progress small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.deep-progress {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 34%, transparent);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 48%),
+    var(--soft);
+}
+
+.deep-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.deep-progress-head span {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.deep-progress-head strong {
+  color: var(--accent-2);
+  font: 900 18px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.deep-progress-track {
+  position: relative;
+  overflow: hidden;
+  height: 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.deep-progress-track i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 32%, transparent);
+  transition: width 0.55s ease;
+}
+
+.deep-progress-track i::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.34), transparent);
+  animation: deep-progress-scan 1.2s linear infinite;
+}
+
+@keyframes deep-progress-scan {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.panel-deep-result {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34%),
+    var(--soft);
+}
+
+.deep-summary {
+  display: grid;
+  gap: 7px;
+}
+
+.deep-summary strong {
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.deep-summary p,
+.deep-group-grid p,
+.deep-investor-grid p,
+.deep-risk-grid p {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.deep-group-grid,
+.deep-investor-grid,
+.deep-risk-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.deep-group-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.deep-investor-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.deep-risk-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.deep-group-grid article,
+.deep-investor-grid article,
+.deep-risk-grid div {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+}
+
+.deep-group-grid strong,
+.deep-investor-grid strong {
+  color: var(--accent-2);
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.deep-investor-grid article div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.deep-investor-grid b {
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.panel-bullish {
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 68%, transparent);
+}
+
+.panel-bearish {
+  border-color: color-mix(in srgb, var(--risk) 42%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--risk) 70%, transparent);
 }
 
 .forecast-insight {
@@ -4208,6 +5250,34 @@ b.negative {
     grid-template-columns: 1fr;
   }
 
+  .chart-risk-strip,
+  .risk-strip-copy {
+    grid-template-columns: 1fr;
+  }
+
+  .risk-strip-score {
+    justify-items: start;
+  }
+
+  .risk-strip-alerts {
+    justify-content: flex-start;
+    max-width: none;
+  }
+
+  .investor-panel-callout {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .investor-panel-callout button {
+    width: 100%;
+  }
+
+  .panel-school-grid,
+  .panel-investor-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .credibility-radar-panel {
     grid-template-columns: minmax(210px, 0.42fr) minmax(0, 1fr);
     grid-template-rows: auto 1fr;
@@ -4302,6 +5372,13 @@ b.negative {
 	  .backtest-compare-panel,
 	  .compare-metrics,
 	  .source-record-grid,
+	  .chart-risk-strip,
+	  .risk-strip-copy,
+	  .panel-vote-grid,
+	  .panel-school-grid,
+	  .panel-investor-list,
+	  .anomaly-metrics,
+	  .anomaly-alerts,
 	  .explanation-layers,
 	  .metric-grid,
 	  .agent-row {

@@ -31,3 +31,19 @@ export function batchBacktestStockProphecy(data) {
     data
   })
 }
+
+export function runInvestorPanel(data) {
+  return request({
+    url: '/api/stock/prophecy/panel',
+    method: 'post',
+    data
+  })
+}
+
+export function runInvestorPanelDeepCommentary(data) {
+  return request({
+    url: '/api/stock/prophecy/panel/deep-commentary',
+    method: 'post',
+    data
+  })
+}
