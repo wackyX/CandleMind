@@ -194,13 +194,13 @@
         <div class="loading-hero">
           <div class="entry-copy">
             <h1>烛机正在推演</h1>
-            <p>{{ form.symbol }} 的行情、事件和模型裁决正在汇合，完成后会一次性渲染完整结果。</p>
+            <p>{{ loadingMessage }}</p>
           </div>
           <div class="prophecy-instrument loading-instrument">
             <div class="live-kline-loader">
               <div class="loader-head">
                 <span>逐日回放</span>
-                <strong>{{ loadingSteps[loadingStepIndex] }}</strong>
+                <strong>{{ activeLoadingSteps[loadingStepIndex] }}</strong>
               </div>
               <div class="loader-chart" aria-hidden="true">
                 <i
@@ -219,7 +219,7 @@
             </div>
             <div class="loading-stack">
               <div
-                v-for="(step, index) in loadingSteps"
+                v-for="(step, index) in activeLoadingSteps"
                 :key="step"
                 :class="['loading-step', { active: index === loadingStepIndex, done: index < loadingStepIndex }]"
               >
@@ -705,7 +705,7 @@
 		                  <span>批量历史回测</span>
 		                  <strong>{{ batchBacktest.summary.directionHitRate }}% 方向命中率</strong>
 		                </div>
-		                <b>{{ batchBacktest.samples }} / {{ batchBacktest.samplesRequested }} 个切点</b>
+		                <b>{{ batchBacktest.samples }} / {{ batchBacktest.samplesRequested }} 个切点 · {{ formatElapsed(batchBacktest.elapsedMs) }}</b>
 		              </div>
 		              <div class="compare-metrics">
 		                <div>
@@ -1222,13 +1222,29 @@ const investorDeepError = ref('')
 const investorDeepProgress = ref(0)
 const investorDeepStepIndex = ref(0)
 let investorDeepTimer = null
-const loadingSteps = [
+const liveLoadingSteps = [
   '连接东方财富并拉取近期日K',
   '计算均线、RSI、ATR和相似形态',
   '抓取近期新闻和公告事件',
   '整理种子报告并请求当前模型',
   '生成单一路径预言K线',
   '校验风险边界并渲染结果'
+]
+const backtestLoadingSteps = [
+  '定位历史回测切点',
+  '截取切点前真实K线',
+  '按当日信息生成预言K线',
+  '加载切点后的真实走势',
+  '逐日对比预言与真实K线',
+  '生成回测命中报告'
+]
+const batchLoadingSteps = [
+  '抽取多个历史切点',
+  '逐切点截取真实K线',
+  '批量生成预言路径',
+  '对比切点后的真实走势',
+  '统计命中率与平均误差',
+  '渲染批量回测报告'
 ]
 const fallbackDeepJudges = ['巴非特', '芒果', '段不平', '赵二板', '章萌主', '西朦斯']
 const loadingCandles = [
@@ -1260,7 +1276,7 @@ const form = reactive({
   horizon: 5,
   days: 180,
   asOfDate: defaultBacktestDate(),
-  batchSamples: 12,
+  batchSamples: 6,
   batchStep: 5,
   includeEvents: true,
   useLlm: true,
@@ -1469,6 +1485,22 @@ const sourceSnapshot = computed(() => report.value?.dataSources || null)
 const prophecyExplanation = computed(() => report.value?.explanation || null)
 
 const riskMonitor = computed(() => report.value?.riskMonitor || null)
+
+const activeLoadingSteps = computed(() => {
+  if (form.mode === 'batch') return batchLoadingSteps
+  if (form.mode === 'backtest') return backtestLoadingSteps
+  return liveLoadingSteps
+})
+
+const loadingMessage = computed(() => {
+  if (form.mode === 'batch') {
+    return `${form.symbol} 正在抽取 ${form.batchSamples} 个历史切点，逐一回放预言并统计命中率。`
+  }
+  if (form.mode === 'backtest') {
+    return `${form.symbol} 正在回到 ${form.asOfDate || '指定日期'}，只用当时之前的K线生成对照。`
+  }
+  return `${form.symbol} 的行情、事件和模型裁决正在汇合，完成后会一次性渲染完整结果。`
+})
 
 const investorPanelTop = computed(() => {
   const panel = investorPanel.value
@@ -1893,7 +1925,7 @@ const startLoadingSteps = () => {
   stopLoadingSteps()
   loadingStepIndex.value = 0
   loadingTimer = window.setInterval(() => {
-    loadingStepIndex.value = Math.min(loadingSteps.length - 1, loadingStepIndex.value + 1)
+    loadingStepIndex.value = Math.min(activeLoadingSteps.value.length - 1, loadingStepIndex.value + 1)
   }, 1800)
 }
 
@@ -1979,6 +2011,13 @@ const buildRadarGeometry = (items) => {
 }
 
 const formatPct = (value) => `${Number(value || 0).toFixed(2)}%`
+
+const formatElapsed = (value) => {
+  const ms = Number(value || 0)
+  if (!ms) return '--'
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  return `${(ms / 1000).toFixed(1)}s`
+}
 
 const directionLabel = (value) => {
   const map = {
